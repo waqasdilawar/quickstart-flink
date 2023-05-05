@@ -65,7 +65,7 @@ public class DataStreamJob {
 		DataStreamSource<String> stream = env.fromSource(
 						ksource,
 						WatermarkStrategy.noWatermarks(),
-						"Redpanda Source"
+						"Kafka Source"
 		);
 
 		SingleOutputStreamOperator<String> filtered = stream.filter(string -> string.contains("Gun"));

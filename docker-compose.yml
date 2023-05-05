@@ -1,0 +1,113 @@
+version: '3.7'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.5.1
+    hostname: zookeeper
+    container_name: zookeeper
+    restart: on-failure
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - flink-network
+  broker:
+    image: confluentinc/cp-server:5.5.1
+    hostname: broker
+    container_name: broker
+    restart: on-failure
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "9010:9010"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: broker:29092
+      CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zookeeper:2181
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'false'
+      KAFKA_JMX_HOSTNAME: "127.0.0.1"
+      KAFKA_JMX_PORT: 9010
+    networks:
+      - flink-network
+
+  flink:
+    image: flink:latest
+    hostname: flink-master
+    container_name: jobmanager
+    restart: on-failure
+    command: standalone-job
+    ports:
+      - "8081:8081"
+
+#    command: standalone-job --job-classname com.job.ClassName [--job-id <job id>] [--fromSavepoint /path/to/savepoint [--allowNonRestoredState]] [job arguments]
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        parallelism.default: 2
+    depends_on:
+      - zookeeper
+      - broker
+      - init-kafka
+    networks:
+      - flink-network
+    volumes:
+      - /home/waqas/Projects/Flink/quickstart/jars:/opt/flink/usrlib
+  flink_task_manager:
+    image: flink:latest
+    hostname: flink-worker
+    container_name: taskmanager
+    restart: on-failure
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    volumes:
+      - /home/waqas/Projects/Flink/quickstart/jars:/opt/flink/usrlib
+    depends_on:
+      - zookeeper
+      - broker
+      - init-kafka
+    networks:
+      - flink-network
+  init-kafka:
+    image: quay.io/strimzi/kafka:0.31.1-kafka-3.2.0
+    container_name: init_kafka
+    depends_on:
+      - broker
+    entrypoint: [ '/bin/sh', '-c' ]
+    command: |
+      "
+      # blocks until kafka is reachable
+      bin/kafka-topics.sh --bootstrap-server kafka:29092 --list &> /dev/null
+      
+      echo -e 'Creating kafka topics'
+      bin/kafka-topics.sh --bootstrap-server broker:29092 --create --if-not-exists --topic profanity_words --replication-factor 1 --partitions 3
+      bin/kafka-topics.sh --bootstrap-server broker:29092 --create --if-not-exists --topic output-topic --replication-factor 1 --partitions 3
+      
+      echo -e 'Topics created:'
+      bin/kafka-topics.sh --bootstrap-server broker:29092 --list
+      "
+    networks:
+      - flink-network
+
+
+networks:
+  flink-network:
+    driver: bridge

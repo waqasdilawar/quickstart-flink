@@ -44,7 +44,7 @@ services:
       - flink-network
 
   flink:
-    image: flink:latest
+    image: flink:1.17.0
     hostname: flink-master
     container_name: jobmanager
     restart: on-failure
@@ -67,7 +67,7 @@ services:
     volumes:
       - /home/waqas/Projects/Flink/quickstart/jars:/opt/flink/usrlib
   flink_task_manager:
-    image: flink:latest
+    image: flink:1.17.0
     hostname: flink-worker
     container_name: taskmanager
     restart: on-failure

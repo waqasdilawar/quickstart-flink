@@ -48,6 +48,7 @@ public class DataStreamJob {
 	private final MessageEventSource source;
 	private final MessageEventSink profanitySink;
 	private final MessageEventSink icebergSink;
+	private final MessageEventSink clickHouseSink;
 
 	/**
 	 * Creates a job using the provided source and sinks (for testing).
@@ -55,11 +56,13 @@ public class DataStreamJob {
 	 * @param source the source of MessageEvents
 	 * @param profanitySink the sink for profane messages
 	 * @param icebergSink the sink for all messages to Iceberg
+	 * @param clickHouseSink the sink for all messages to ClickHouse
 	 */
-	public DataStreamJob(MessageEventSource source, MessageEventSink profanitySink, MessageEventSink icebergSink) {
+	public DataStreamJob(MessageEventSource source, MessageEventSink profanitySink, MessageEventSink icebergSink, MessageEventSink clickHouseSink) {
 		this.source = source;
 		this.profanitySink = profanitySink;
 		this.icebergSink = icebergSink;
+		this.clickHouseSink = clickHouseSink;
 	}
 
 	/**
@@ -69,7 +72,8 @@ public class DataStreamJob {
 		this(
 			new KafkaMessageEventSource(),
 			new KafkaProfanitySink(),
-			new IcebergMessageEventSink()
+			new IcebergMessageEventSink(),
+			new ClickHouseMessageEventSink()
 		);
 	}
 
@@ -104,6 +108,8 @@ public class DataStreamJob {
 		);
 
 		icebergSink.addSink(processedStream);
+
+		clickHouseSink.addSink(processedStream);
 
 		String jobName = System.getenv().getOrDefault("JOB_NAME", "Flink_Iceberg_Integration_Job");
 		LOG.info("Starting job execution: {}", jobName);

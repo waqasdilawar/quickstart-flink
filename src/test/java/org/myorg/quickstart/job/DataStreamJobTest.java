@@ -58,13 +58,15 @@ class DataStreamJobTest {
         // Create test sinks
         MessageEventSink profanitySink = stream -> stream.addSink(new CollectSink(CollectSink.Target.PROFANITY));
         MessageEventSink icebergSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.ICEBERG));
+        MessageEventSink clickHouseSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.CLICKHOUSE));
 
         // Execute job
-        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink);
+        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink, clickHouseSink);
         job.execute();
 
         List<MessageEvent> profanityResults = CollectSink.getProfanityValues();
         List<MessageEvent> icebergResults = CollectSink.getIcebergValues();
+        List<MessageEvent> clickHouseResults = CollectSink.getClickHouseValues();
 
         // Verify profanity sink received profane messages
         assertEquals(1, profanityResults.size());
@@ -83,15 +85,18 @@ class DataStreamJobTest {
         );
         MessageEventSink profanitySink = stream -> stream.addSink(new CollectSink(CollectSink.Target.PROFANITY));
         MessageEventSink icebergSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.ICEBERG));
+        MessageEventSink clickHouseSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.CLICKHOUSE));
 
-        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink);
+        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink, clickHouseSink);
         job.execute();
 
         List<MessageEvent> profanityResults = CollectSink.getProfanityValues();
         List<MessageEvent> icebergResults = CollectSink.getIcebergValues();
+        List<MessageEvent> clickHouseResults = CollectSink.getClickHouseValues();
 
         assertEquals(0, profanityResults.size());
         assertEquals(0, icebergResults.size());
+        assertEquals(0, clickHouseResults.size());
     }
 
     @Test
@@ -111,18 +116,21 @@ class DataStreamJobTest {
         MessageEventSource testSource = env -> env.fromCollection(sourceData);
         MessageEventSink profanitySink = stream -> stream.addSink(new CollectSink(CollectSink.Target.PROFANITY));
         MessageEventSink icebergSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.ICEBERG));
+        MessageEventSink clickHouseSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.CLICKHOUSE));
 
-        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink);
+        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink, clickHouseSink);
         job.execute();
 
         List<MessageEvent> profanityResults = CollectSink.getProfanityValues();
         List<MessageEvent> icebergResults = CollectSink.getIcebergValues();
+        List<MessageEvent> clickHouseResults = CollectSink.getClickHouseValues();
 
         // No profane messages should be sent to profanity sink
         assertEquals(0, profanityResults.size());
 
         // All messages should be sent to iceberg sink
         assertEquals(2, icebergResults.size());
+        assertEquals(2, clickHouseResults.size());
         assertTrue(icebergResults.stream().allMatch(m -> m.getProfanityType() == MessageEvent.ProfanityType.SAFE));
     }
 
@@ -143,12 +151,14 @@ class DataStreamJobTest {
         MessageEventSource testSource = env -> env.fromCollection(sourceData);
         MessageEventSink profanitySink = stream -> stream.addSink(new CollectSink(CollectSink.Target.PROFANITY));
         MessageEventSink icebergSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.ICEBERG));
+        MessageEventSink clickHouseSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.CLICKHOUSE));
 
-        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink);
+        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink, clickHouseSink);
         job.execute();
 
         List<MessageEvent> profanityResults = CollectSink.getProfanityValues();
         List<MessageEvent> icebergResults = CollectSink.getIcebergValues();
+        List<MessageEvent> clickHouseResults = CollectSink.getClickHouseValues();
 
         // All messages should be sent to profanity sink
         assertEquals(2, profanityResults.size());
@@ -156,6 +166,7 @@ class DataStreamJobTest {
 
         // All messages should also be sent to iceberg sink
         assertEquals(2, icebergResults.size());
+        assertEquals(2, clickHouseResults.size());
     }
 
     @Test
@@ -205,12 +216,14 @@ class DataStreamJobTest {
         MessageEventSource testSource = env -> env.fromCollection(sourceData);
         MessageEventSink profanitySink = stream -> stream.addSink(new CollectSink(CollectSink.Target.PROFANITY));
         MessageEventSink icebergSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.ICEBERG));
+        MessageEventSink clickHouseSink = stream -> stream.addSink(new CollectSink(CollectSink.Target.CLICKHOUSE));
 
-        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink);
+        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink, clickHouseSink);
         job.execute();
 
         List<MessageEvent> profanityResults = CollectSink.getProfanityValues();
         List<MessageEvent> icebergResults = CollectSink.getIcebergValues();
+        List<MessageEvent> clickHouseResults = CollectSink.getClickHouseValues();
 
         // Verify profanity detection worked
         assertEquals(5, profanityResults.size());
@@ -218,6 +231,7 @@ class DataStreamJobTest {
 
         // Verify all messages sent to iceberg
         assertEquals(10, icebergResults.size());
+        assertEquals(10, clickHouseResults.size());
     }
 
     /**
@@ -226,11 +240,13 @@ class DataStreamJobTest {
     private static class CollectSink implements SinkFunction<MessageEvent> {
         enum Target {
             PROFANITY,
-            ICEBERG
+            ICEBERG,
+            CLICKHOUSE
         }
 
         private static final List<MessageEvent> PROFANITY_VALUES = Collections.synchronizedList(new ArrayList<>());
         private static final List<MessageEvent> ICEBERG_VALUES = Collections.synchronizedList(new ArrayList<>());
+        private static final List<MessageEvent> CLICKHOUSE_VALUES = Collections.synchronizedList(new ArrayList<>());
 
         private final Target target;
 
@@ -241,6 +257,7 @@ class DataStreamJobTest {
         static void clearAll() {
             PROFANITY_VALUES.clear();
             ICEBERG_VALUES.clear();
+            CLICKHOUSE_VALUES.clear();
         }
 
         static List<MessageEvent> getProfanityValues() {
@@ -251,12 +268,18 @@ class DataStreamJobTest {
             return new ArrayList<>(ICEBERG_VALUES);
         }
 
+        static List<MessageEvent> getClickHouseValues() {
+            return new ArrayList<>(CLICKHOUSE_VALUES);
+        }
+
         @Override
         public void invoke(MessageEvent value, Context context) {
             if (target == Target.PROFANITY) {
                 PROFANITY_VALUES.add(value);
-            } else {
+            } else if (target == Target.ICEBERG) {
                 ICEBERG_VALUES.add(value);
+            } else {
+                CLICKHOUSE_VALUES.add(value);
             }
         }
     }

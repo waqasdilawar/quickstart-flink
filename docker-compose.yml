@@ -1,4 +1,288 @@
 services:
+  postgres:
+    image: postgres:14.17
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: POLARIS
+      POSTGRES_INITDB_ARGS: "--encoding UTF8 --data-checksums"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    command: postgres -c wal_level=logical
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 5s
+      timeout: 2s
+      retries: 15
+    networks:
+      - flink-network
+
+  polaris-bootstrap:
+    image: apache/polaris-admin-tool:latest
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/POLARIS
+      QUARKUS_DATASOURCE_USERNAME: postgres
+      QUARKUS_DATASOURCE_PASSWORD: postgres
+    command:
+      - "bootstrap"
+      - "--realm=default"
+      - "--credential=default,admin,password"
+    networks:
+      - flink-network
+
+  polaris:
+    image: apache/polaris:latest
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+      polaris-bootstrap:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    ports:
+      - "8181:8181"
+      - "8182:8182"
+    networks:
+      - flink-network
+    environment:
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      POLARIS_PERSISTENCE_RELATIONAL_JDBC_MAX_RETRIES: 5
+      POLARIS_PERSISTENCE_RELATIONAL_JDBC_INITIAL_DELAY_IN_MS: 100
+      POLARIS_PERSISTENCE_RELATIONAL_JDBC_MAX_DURATION_IN_MS: 5000
+      QUARKUS_DATASOURCE_DB_KIND: postgresql
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/POLARIS
+      QUARKUS_DATASOURCE_USERNAME: postgres
+      QUARKUS_DATASOURCE_PASSWORD: postgres
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: password
+      AWS_REGION: dummy-region
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ENDPOINT_URL_STS: http://minio:9000
+      POLARIS_BOOTSTRAP_CREDENTIALS: default,admin,password
+      POLARIS_REALM_CONTEXT_REALMS: default
+      QUARKUS_OTEL_SDK_DISABLED: "true"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8182/q/health" ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+    networks:
+      - flink-network
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: [ "server", "/data", "--console-address", ":9001" ]
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 5s
+      timeout: 20s
+      retries: 5
+
+  minio-client:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    networks:
+      - flink-network
+    entrypoint: >
+      /bin/sh -c "
+        until mc alias set minio http://minio:9000 admin password; do sleep 1; done;
+        mc mb minio/lakehouse;
+        mc mb minio/warehouse;
+        mc anonymous set public minio/lakehouse;
+        mc anonymous set public minio/warehouse;
+        tail -f /dev/null
+      "
+
+  polaris-setup:
+    image: alpine/curl
+    container_name: polaris-setup
+    depends_on:
+      - polaris
+      - minio-client
+    networks:
+      - flink-network
+    environment:
+      - CLIENT_ID=admin
+      - CLIENT_SECRET=password
+      - CATALOG_NAME=lakehouse
+      - NAMESPACE=raw_messages
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        apk add --no-cache jq
+
+        echo "Waiting for Polaris to be ready..."
+        sleep 5
+
+        echo "Obtaining OAuth access token..."
+        TOKEN_RESPONSE=$$(curl -s -X POST http://polaris:8181/api/catalog/v1/oauth/tokens \
+          -H 'Content-Type: application/x-www-form-urlencoded' \
+          -d "grant_type=client_credentials&client_id=$${CLIENT_ID}&client_secret=$${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL")
+
+        TOKEN=$$(echo $$TOKEN_RESPONSE | jq -r '.access_token')
+
+        if [ "$$TOKEN" = "null" ] || [ -z "$$TOKEN" ]; then
+          echo "❌ Failed to obtain access token"
+          echo "Response: $$TOKEN_RESPONSE"
+          exit 1
+        fi
+        echo "✅ Obtained access token"
+
+        echo ""
+        echo "Creating catalog '$$CATALOG_NAME'..."
+        CATALOG_PAYLOAD='{
+          "catalog": {
+            "name": "'$$CATALOG_NAME'",
+            "type": "INTERNAL",
+            "properties": {"default-base-location": "s3://lakehouse"},
+            "storageConfigInfo": {
+              "storageType": "S3",
+              "allowedLocations": ["s3://lakehouse/*"],
+              "region": "us-east-1",
+              "endpoint": "http://minio:9000",
+              "pathStyleAccess": true,
+              "stsUnavailable": true
+            }
+          }
+        }'
+
+        CATALOG_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/management/v1/catalogs \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$$CATALOG_PAYLOAD")
+
+        HTTP_CODE=$$(echo "$$CATALOG_RESPONSE" | tail -n1)
+        RESPONSE_BODY=$$(echo "$$CATALOG_RESPONSE" | sed '$$d')
+
+        if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then
+          echo "✅ Catalog '$$CATALOG_NAME' created"
+        elif [ "$$HTTP_CODE" = "409" ]; then
+          echo "ℹ️  Catalog '$$CATALOG_NAME' already exists (skipping)"
+        else
+          echo "⚠️  Catalog creation returned HTTP $$HTTP_CODE: $$RESPONSE_BODY"
+        fi
+
+        echo ""
+        echo "Creating namespace '$$NAMESPACE'..."
+        NAMESPACE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"namespace": ["'$$NAMESPACE'"]}')
+
+        HTTP_CODE=$$(echo "$$NAMESPACE_RESPONSE" | tail -n1)
+        RESPONSE_BODY=$$(echo "$$NAMESPACE_RESPONSE" | sed '$$d')
+
+        if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then
+          echo "✅ Namespace '$$NAMESPACE' created"
+        elif [ "$$HTTP_CODE" = "409" ]; then
+          echo "ℹ️  Namespace '$$NAMESPACE' already exists (skipping)"
+        else
+          echo "⚠️  Namespace creation returned HTTP $$HTTP_CODE: $$RESPONSE_BODY"
+        fi
+
+        echo ""
+        echo "Creating table 'filtered_messages'..."
+        TABLE_PAYLOAD='{
+          "name": "filtered_messages",
+          "schema": {
+            "type": "struct",
+            "fields": [
+              {"id": 1, "name": "account_id", "required": false, "type": "string"},
+              {"id": 2, "name": "message_id", "required": false, "type": "string"},
+              {"id": 3, "name": "message_body", "required": false, "type": "string"},
+              {"id": 4, "name": "correlation_id", "required": false, "type": "string"},
+              {"id": 5, "name": "message_status", "required": false, "type": "string"},
+              {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"}
+            ]
+          }
+        }'
+
+        TABLE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$$TABLE_PAYLOAD")
+
+        HTTP_CODE=$$(echo "$$TABLE_RESPONSE" | tail -n1)
+        RESPONSE_BODY=$$(echo "$$TABLE_RESPONSE" | sed '$$d')
+
+        if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then
+          echo "✅ Table 'filtered_messages' created"
+        elif [ "$$HTTP_CODE" = "409" ]; then
+          echo "ℹ️  Table 'filtered_messages' already exists (skipping)"
+        else
+          echo "⚠️  Table filtered_messages creation returned HTTP $$HTTP_CODE: $$RESPONSE_BODY"
+        fi
+
+        echo ""
+        echo "Verifying setup - listing tables..."
+        TABLES_RESPONSE=$$(curl -s -X GET http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
+          -H "Authorization: Bearer $$TOKEN")
+
+        echo "Tables in $$CATALOG_NAME.$$NAMESPACE:"
+        echo "$$TABLES_RESPONSE" | jq -r '.identifiers[]?.name // empty' 2>/dev/null || echo "$$TABLES_RESPONSE"
+
+        echo ""
+        echo "=========================================="
+        echo "🎉 Polaris Iceberg Setup Complete!"
+        echo "=========================================="
+        echo ""
+        echo "Catalog: $$CATALOG_NAME"
+        echo "  Namespace: $$NAMESPACE"
+        echo "  Tables: filtered_messages"
+        echo "  Storage: S3 (MinIO)"
+        echo "  Location: s3://lakehouse"
+        echo ""
+        echo "Polaris APIs:"
+        echo "  - Iceberg REST:   http://localhost:8181/api/catalog/v1"
+        echo "  - Management:     http://localhost:8181/api/management/v1"
+        echo ""
+        echo "MinIO Console: http://localhost:9001"
+        echo "  Username: admin"
+        echo "  Password: password"
+        echo ""
+        echo "=========================================="
+
+  iceberg-sink-connect:
+    image: quay.io/debezium/connect
+    container_name: iceberg-sink-connect
+    restart: on-failure
+    depends_on:
+      - zookeeper
+      - broker
+    ports:
+      - "8083:8083"
+    environment:
+      GROUP_ID: 2
+      BOOTSTRAP_SERVERS: broker:29092
+      CONFIG_STORAGE_TOPIC: kafka_connect_configs
+      OFFSET_STORAGE_TOPIC: kafka_connect_offsets
+      STATUS_STORAGE_TOPIC: kafka_connect_statuses
+    volumes:
+      - ./jars/iceberg-kafka-connect-runtime-0.6.18/lib:/kafka/connect/iceberg-connector/
+    networks:
+      - flink-network
+
   zookeeper:
     image: confluentinc/cp-zookeeper:5.5.1
     hostname: zookeeper
@@ -11,6 +295,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     networks:
       - flink-network
+
   broker:
     image: confluentinc/cp-server:5.5.1
     hostname: broker
@@ -43,30 +328,51 @@ services:
       - flink-network
 
   flink:
-    image: flink:1.19.1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: flink-poc-job:1.0
     hostname: flink-master
     container_name: jobmanager
     restart: on-failure
     command: standalone-job
     ports:
       - "8081:8081"
-
-#    command: standalone-job --job-classname com.job.ClassName [--job-id <job id>] [--fromSavepoint /path/to/savepoint [--allowNonRestoredState]] [job arguments]
     environment:
       - |
         FLINK_PROPERTIES=
         jobmanager.rpc.address: jobmanager
         parallelism.default: 2
+        state.backend: rocksdb
+        state.checkpoints.dir: file:///tmp/checkpoints
+        state.savepoints.dir: file:///tmp/savepoints
+      - POLARIS_URI=http://polaris:8181/api/catalog
+      - POLARIS_CREDENTIAL=admin:password
+      - POLARIS_WAREHOUSE=lakehouse
+      - POLARIS_SCOPE=PRINCIPAL_ROLE:ALL
+      - OAUTH2_SERVER_URI=http://polaris:8181/api/catalog/v1/oauth/tokens
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=admin
+      - S3_SECRET_KEY=password
+      - S3_PATH_STYLE_ACCESS=true
+      - CLIENT_REGION=us-east-1
+      - IO_IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_NAME=polaris
+      - ICEBERG_NAMESPACE=raw_messages
+      - TABLE_NAME=filtered_messages
+      - WRITE_PARALLELISM=1
+      - KAFKA_BOOTSTRAP_SERVERS=broker:29092
     depends_on:
-      - zookeeper
-      - broker
       - init-kafka
+      - polaris-setup
     networks:
       - flink-network
-    volumes:
-      - /home/waqas/Projects/Flink/quickstart/jars:/opt/flink/usrlib
+
   flink_task_manager:
-    image: flink:1.19.1
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: flink-poc-job:1.0
     hostname: flink-worker
     container_name: taskmanager
     restart: on-failure
@@ -77,14 +383,28 @@ services:
         jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 2
         parallelism.default: 2
-    volumes:
-      - /home/waqas/Projects/Flink/quickstart/jars:/opt/flink/usrlib
+        state.backend: rocksdb
+      - POLARIS_URI=http://polaris:8181/api/catalog
+      - POLARIS_CREDENTIAL=admin:password
+      - POLARIS_WAREHOUSE=lakehouse
+      - POLARIS_SCOPE=PRINCIPAL_ROLE:ALL
+      - OAUTH2_SERVER_URI=http://polaris:8181/api/catalog/v1/oauth/tokens
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=admin
+      - S3_SECRET_KEY=password
+      - S3_PATH_STYLE_ACCESS=true
+      - CLIENT_REGION=us-east-1
+      - IO_IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_NAME=polaris
+      - ICEBERG_NAMESPACE=raw_messages
+      - TABLE_NAME=filtered_messages
+      - WRITE_PARALLELISM=1
     depends_on:
-      - zookeeper
-      - broker
       - init-kafka
+      - polaris-setup
     networks:
       - flink-network
+
   init-kafka:
     image: quay.io/strimzi/kafka:0.31.1-kafka-3.2.0
     container_name: init_kafka
@@ -93,20 +413,22 @@ services:
     entrypoint: [ '/bin/sh', '-c' ]
     command: |
       "
-      # blocks until kafka is reachable
       bin/kafka-topics.sh --bootstrap-server kafka:29092 --list &> /dev/null
-      
+
       echo -e 'Creating kafka topics'
       bin/kafka-topics.sh --bootstrap-server broker:29092 --create --if-not-exists --topic profanity_words --replication-factor 1 --partitions 3
       bin/kafka-topics.sh --bootstrap-server broker:29092 --create --if-not-exists --topic output-topic --replication-factor 1 --partitions 3
-      
+
       echo -e 'Topics created:'
       bin/kafka-topics.sh --bootstrap-server broker:29092 --list
       "
     networks:
       - flink-network
 
-
 networks:
   flink-network:
     driver: bridge
+
+volumes:
+  postgres-data:
+  minio-data:

@@ -116,8 +116,10 @@ services:
     image: alpine/curl
     container_name: polaris-setup
     depends_on:
-      - polaris
-      - minio-client
+      polaris:
+        condition: service_healthy
+      minio-client:
+        condition: service_started
     networks:
       - flink-network
     environment:
@@ -202,9 +204,9 @@ services:
         fi
 
         echo ""
-        echo "Creating table 'filtered_messages'..."
-        TABLE_PAYLOAD='{
-          "name": "filtered_messages",
+        echo "Creating table 'profanity_messages'..."
+        PROFANITY_TABLE_PAYLOAD='{
+          "name": "profanity_messages",
           "schema": {
             "type": "struct",
             "fields": [
@@ -213,25 +215,60 @@ services:
               {"id": 3, "name": "message_body", "required": false, "type": "string"},
               {"id": 4, "name": "correlation_id", "required": false, "type": "string"},
               {"id": 5, "name": "message_status", "required": false, "type": "string"},
-              {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"}
+              {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"},
+              {"id": 7, "name": "profanity_type", "required": false, "type": "string"}
             ]
           }
         }'
 
-        TABLE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
+        PROFANITY_TABLE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
           -H "Authorization: Bearer $$TOKEN" \
           -H "Content-Type: application/json" \
-          -d "$$TABLE_PAYLOAD")
+          -d "$$PROFANITY_TABLE_PAYLOAD")
 
-        HTTP_CODE=$$(echo "$$TABLE_RESPONSE" | tail -n1)
-        RESPONSE_BODY=$$(echo "$$TABLE_RESPONSE" | sed '$$d')
+        HTTP_CODE=$$(echo "$$PROFANITY_TABLE_RESPONSE" | tail -n1)
+        RESPONSE_BODY=$$(echo "$$PROFANITY_TABLE_RESPONSE" | sed '$$d')
 
         if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then
-          echo "✅ Table 'filtered_messages' created"
+          echo "✅ Table 'profanity_messages' created"
         elif [ "$$HTTP_CODE" = "409" ]; then
-          echo "ℹ️  Table 'filtered_messages' already exists (skipping)"
+          echo "ℹ️  Table 'profanity_messages' already exists (skipping)"
         else
-          echo "⚠️  Table filtered_messages creation returned HTTP $$HTTP_CODE: $$RESPONSE_BODY"
+          echo "⚠️  Table profanity_messages creation returned HTTP $$HTTP_CODE: $$RESPONSE_BODY"
+        fi
+
+        echo ""
+        echo "Creating table 'safe_messages'..."
+        SAFE_TABLE_PAYLOAD='{
+          "name": "safe_messages",
+          "schema": {
+            "type": "struct",
+            "fields": [
+              {"id": 1, "name": "account_id", "required": false, "type": "string"},
+              {"id": 2, "name": "message_id", "required": false, "type": "string"},
+              {"id": 3, "name": "message_body", "required": false, "type": "string"},
+              {"id": 4, "name": "correlation_id", "required": false, "type": "string"},
+              {"id": 5, "name": "message_status", "required": false, "type": "string"},
+              {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"},
+              {"id": 7, "name": "profanity_type", "required": false, "type": "string"}
+            ]
+          }
+        }'
+
+        SAFE_TABLE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$$SAFE_TABLE_PAYLOAD")
+
+        HTTP_CODE=$$(echo "$$SAFE_TABLE_RESPONSE" | tail -n1)
+        RESPONSE_BODY=$$(echo "$$SAFE_TABLE_RESPONSE" | sed '$$d')
+
+        if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then
+          echo "✅ Table 'safe_messages' created"
+        elif [ "$$HTTP_CODE" = "409" ]; then
+          echo "ℹ️  Table 'safe_messages' already exists (skipping)"
+        else
+          echo "⚠️  Table safe_messages creation returned HTTP $$HTTP_CODE: $$RESPONSE_BODY"
         fi
 
         echo ""
@@ -249,7 +286,7 @@ services:
         echo ""
         echo "Catalog: $$CATALOG_NAME"
         echo "  Namespace: $$NAMESPACE"
-        echo "  Tables: filtered_messages"
+        echo "  Tables: profanity_messages, safe_messages"
         echo "  Storage: S3 (MinIO)"
         echo "  Location: s3://lakehouse"
         echo ""
@@ -363,8 +400,10 @@ services:
       - WRITE_PARALLELISM=1
       - KAFKA_BOOTSTRAP_SERVERS=broker:29092
     depends_on:
-      - init-kafka
-      - polaris-setup
+      init-kafka:
+        condition: service_completed_successfully
+      polaris-setup:
+        condition: service_completed_successfully
     networks:
       - flink-network
 
@@ -400,8 +439,10 @@ services:
       - TABLE_NAME=filtered_messages
       - WRITE_PARALLELISM=1
     depends_on:
-      - init-kafka
-      - polaris-setup
+      init-kafka:
+        condition: service_completed_successfully
+      polaris-setup:
+        condition: service_completed_successfully
     networks:
       - flink-network
 

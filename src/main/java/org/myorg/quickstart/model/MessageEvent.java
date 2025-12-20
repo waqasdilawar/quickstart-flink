@@ -24,11 +24,17 @@ public class MessageEvent {
     @JsonProperty("timestamp")
     private String timestamp;
 
-    // Default constructor
+    public enum ProfanityType {
+        PROFANITY,
+        SAFE
+    }
+
+    @JsonProperty("profanity_type")
+    private ProfanityType profanityType;
+
     public MessageEvent() {
     }
 
-    // Getters and Setters
     public String getAccountId() {
         return accountId;
     }
@@ -75,5 +81,13 @@ public class MessageEvent {
 
     public void setTimestamp(String timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public ProfanityType getProfanityType() {
+        return profanityType;
+    }
+
+    public void setProfanityType(ProfanityType profanityType) {
+        this.profanityType = profanityType;
     }
 }

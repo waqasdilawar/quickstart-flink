@@ -27,7 +27,8 @@ public class IcebergSinkFunction {
     Types.NestedField.optional(3, "message_body", Types.StringType.get()),
     Types.NestedField.optional(4, "correlation_id", Types.StringType.get()),
     Types.NestedField.optional(5, "message_status", Types.StringType.get()),
-    Types.NestedField.optional(6, "timestamp", Types.TimestampType.withZone())
+    Types.NestedField.optional(6, "timestamp", Types.TimestampType.withZone()),
+    Types.NestedField.optional(7, "profanity_type", Types.StringType.get())
   );
 
   /**
@@ -47,9 +48,14 @@ public class IcebergSinkFunction {
 
     DynamicIcebergSink.Builder<RowData> builder = DynamicIcebergSink.forInput(rowDataStream)
       .generator((row, out) -> {
+        String profanityType = row.getString(6).toString();
+        String tableName = "safe_messages";
+        if ("PROFANITY".equals(profanityType)) {
+          tableName = "profanity_messages";
+        }
         out.collect(
           new DynamicRecord(
-            TableIdentifier.of(namespace, "filtered_messages"),
+            TableIdentifier.of(namespace, tableName),
             branch,
             FILTERED_MESSAGE_SCHEMA,
             row,

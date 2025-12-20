@@ -24,7 +24,7 @@ public class DataToRowConverter implements MapFunction<MessageEvent, RowData> {
 
     @Override
     public RowData map(MessageEvent event) throws Exception {
-        GenericRowData row = new GenericRowData(6); // 6 fields in schema
+        GenericRowData row = new GenericRowData(7); // 7 fields in schema
 
         try {
             // Field 0: account_id
@@ -52,6 +52,10 @@ public class DataToRowConverter implements MapFunction<MessageEvent, RowData> {
             Instant instant = timestampStr != null ? Instant.parse(timestampStr) : Instant.now();
             row.setField(5, TimestampData.fromInstant(instant));
 
+            // Field 6: profanity_type
+            MessageEvent.ProfanityType type = event.getProfanityType();
+            row.setField(6, StringData.fromString(type != null ? type.name() : "SAFE"));
+
         } catch (Exception e) {
             // If parsing fails, set default values
             row.setField(0, StringData.fromString(""));
@@ -60,6 +64,7 @@ public class DataToRowConverter implements MapFunction<MessageEvent, RowData> {
             row.setField(3, StringData.fromString(""));
             row.setField(4, StringData.fromString("ERROR"));
             row.setField(5, TimestampData.fromInstant(Instant.now()));
+            row.setField(6, StringData.fromString("SAFE"));
         }
 
         return row;

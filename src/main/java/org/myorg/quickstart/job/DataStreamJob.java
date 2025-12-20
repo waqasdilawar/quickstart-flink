@@ -45,6 +45,14 @@ import org.apache.flink.table.data.RowData;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.List;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.Collectors;
 import org.myorg.quickstart.model.MessageEvent;
 
 /**
@@ -132,8 +140,18 @@ public class DataStreamJob {
 						watermarkStrategy,
 						"Kafka Source"
 		);
-		SingleOutputStreamOperator<MessageEvent> filtered = stream.filter(string -> string.getMessageBody().toLowerCase().contains("gun"));
 
+		// Load profanity list
+		Set<String> profanities = loadProfanities();
+
+		// 1. Tag messages with profanity type
+		SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(event -> {
+			boolean isProfane = containsProfanity(event.getMessageBody(), profanities);
+			event.setProfanityType(isProfane ? MessageEvent.ProfanityType.PROFANITY : MessageEvent.ProfanityType.SAFE);
+			return event;
+		});
+
+		// 2. Kafka Sink (only profane)
 		KafkaSink<MessageEvent> kafkaSink = KafkaSink.<MessageEvent>builder()
 			.setBootstrapServers(bootstrap_servers)
 			.setRecordSerializer(KafkaRecordSerializationSchema.builder()
@@ -146,7 +164,9 @@ public class DataStreamJob {
 			.setProperty("acks", "all")
 			.setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
 			.build();
-		filtered.sinkTo(kafkaSink).name("Kafka Sink");
+			
+		processedStream.filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+			.sinkTo(kafkaSink).name("Kafka Sink (Profane)");
 
 		String polarisUri = System.getenv().getOrDefault("POLARIS_URI", "http://polaris:8181/api/catalog");
 		String polarisCredential = System.getenv().getOrDefault("POLARIS_CREDENTIAL", "admin:password");
@@ -188,12 +208,10 @@ public class DataStreamJob {
 		String icebergBranch = System.getenv().getOrDefault("ICEBERG_BRANCH", "main");
 		int writeParallelism = Integer.parseInt(System.getenv().getOrDefault("WRITE_PARALLELISM", "1"));
 
-		// Convert to RowData for Iceberg Dynamic sink
-		DataStream<RowData> icebergRowStream = toRowDataStream(filtered);
-
-		// Build sink config explicitly, then attach explicitly via append()
+		// Dynamic Sink
+		DataStream<RowData> rowStream = toRowDataStream(processedStream);
 		createIcebergSinkBuilder(
-			icebergRowStream,
+			rowStream,
 			catalogName,
 			icebergNamespace,
 			icebergBranch,
@@ -211,5 +229,36 @@ public class DataStreamJob {
 		// 9. Execute the Job
 		// ============================================================
 		env.execute(jobName);
+	}
+
+	private static Set<String> loadProfanities() {
+		Set<String> profanities = new HashSet<>();
+		try (InputStream is = DataStreamJob.class.getClassLoader().getResourceAsStream("profanity_list.txt")) {
+			if (is != null) {
+				try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+					profanities = reader.lines().map(String::trim).filter(line -> !line.isEmpty()).collect(Collectors.toSet());
+				}
+			} else {
+				System.err.println("Could not find profanity_list.txt in resources. Using default.");
+				profanities.add("gun");
+			}
+		} catch (Exception e) {
+			System.err.println("Error loading profanity list: " + e.getMessage());
+			profanities.add("gun");
+		}
+		return profanities;
+	}
+
+	private static boolean containsProfanity(String text, Set<String> profanities) {
+		if (text == null || text.isEmpty()) {
+			return false;
+		}
+		String lower = text.toLowerCase();
+		for (String badWord : profanities) {
+			if (lower.contains(badWord.toLowerCase())) {
+				return true;
+			}
+		}
+		return false;
 	}
 }

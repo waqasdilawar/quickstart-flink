@@ -322,6 +322,7 @@ services:
 
   clickhouse:
     image: clickhouse:25.3.10.19
+    container_name: clickhouse
     ports:
       - "18123:8123"   # HTTP
       - "19000:9000"   # native

@@ -195,6 +195,72 @@ ORDER BY (account_id, message_id);
 ### 3. Materialized Insertion Time
 The `inserted_at` column is populated via `DEFAULT now()` (or `MATERIALIZED now()` in setup) to allow `ReplacingMergeTree` to handle deduplication based on the latest insertion time.
 
+### 4. Querying Iceberg Tables (DataLakeCatalog)
+
+You can query the Iceberg tables managed by Polaris directly from ClickHouse.
+
+#### Step 1: Create ClickHouse User & Permissions (Fix for "Missing Step")
+
+The default `admin` principal may lack the necessary privileges (`TABLE_READ_DATA`, `LOAD_TABLE_WITH_READ_DELEGATION`) required by ClickHouse to access the catalog and vend credentials.
+
+Run the provided setup script to create a dedicated `clickhouse_user`, assign roles, and grant permissions:
+
+```bash
+chmod +x setup_clickhouse_user.sh
+./setup_clickhouse_user.sh
+```
+
+**What this script does:**
+1. Creates a `clickhouse_user` principal and `clickhouse_role` in Polaris.
+2. Assigns the `catalog_admin` catalog role (which has broad permissions on `lakehouse` catalog) to the `clickhouse_role`.
+3. Explicitly grants `TABLE_READ_DATA` and `TABLE_WRITE_DATA` to `catalog_admin` to ensure access is active.
+4. **Updates `create_db.sql`** with the generated Client ID and Secret.
+
+#### Step 2: Create the Database
+
+Once the user is created and `create_db.sql` is updated, run the SQL script in ClickHouse:
+
+```bash
+curl -s "http://localhost:8123/?allow_experimental_database_iceberg=1" --data-binary @create_db.sql
+```
+
+(Or paste the content of `create_db.sql` into your ClickHouse client).
+
+#### Step 3: Query Data
+
+**Option A: Using DataLakeCatalog (Metadata Integration)**
+
+This method treats the Polaris Catalog as a ClickHouse database.
+
+```sql
+SHOW TABLES FROM demo;
+-- Result: raw_messages.profanity_messages, raw_messages.safe_messages
+```
+
+*Note: If you encounter "S3 key does not exist" errors when querying data via DataLakeCatalog with MinIO, this is often due to path resolution differences between ClickHouse and MinIO. Use Option B for data verification.*
+
+**Option B: Direct Access via `iceberg()` Function (Verified)**
+
+If DataLakeCatalog path resolution fails, you can use the `iceberg` table function to query the table directly using the path managed by Polaris.
+
+```sql
+-- Query safe_messages
+SELECT * FROM iceberg(
+  'http://minio:9000/lakehouse/raw_messages/safe_messages', 
+  'admin', 
+  'password'
+) LIMIT 5;
+
+-- Query profanity_messages
+SELECT * FROM iceberg(
+  'http://minio:9000/lakehouse/raw_messages/profanity_messages', 
+  'admin', 
+  'password'
+) LIMIT 5;
+```
+
+This confirms that ClickHouse can read the Iceberg metadata and Parquet files created by Flink.
+
 ---
 
 ## Apache Flink Integration

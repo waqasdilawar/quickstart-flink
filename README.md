@@ -26,18 +26,24 @@ graph LR
     K1[Kafka\nprofanity_words]
     Job(Flink Job\nTag: Profanity/Safe)
     K2[Kafka\noutput-topic]
-    Sink[Dynamic Iceberg Sink]
+    IcebergSink[Dynamic Iceberg Sink]
+    CHSink[ClickHouse Sink]
     Polaris[Apache Polaris\nCatalog]
     MinIO[(MinIO\nS3 Storage)]
     Postgres[(PostgreSQL\nDB)]
+    ClickHouse[(ClickHouse\nOLAP DB)]
 
     %% Flow
     K1 -->|JSON| Job
     Job -->|Profane Only| K2
-    Job -->|Tagged Stream| Sink
+    Job -->|Tagged Stream| IcebergSink
+    Job -->|All Events| CHSink
     
-    Sink -->|Profane| T1[Table:\nprofanity_messages]
-    Sink -->|Safe| T2[Table:\nsafe_messages]
+    IcebergSink -->|Profane| T1[Table:\nprofanity_messages]
+    IcebergSink -->|Safe| T2[Table:\nsafe_messages]
+    
+    CHSink --> T3[Table:\nmessage_events]
+    T3 -.-> ClickHouse
     
     T1 -- Metadata --> Polaris
     T2 -- Metadata --> Polaris
@@ -50,6 +56,7 @@ graph LR
     style Job fill:#f9f,stroke:#333,stroke-width:2px
     style Polaris fill:#ccf,stroke:#333,stroke-width:2px
     style MinIO fill:#ff9,stroke:#333,stroke-width:2px
+    style ClickHouse fill:#fea,stroke:#333,stroke-width:2px
 ```
 
 **Components:**
@@ -59,6 +66,7 @@ graph LR
 - **Apache Iceberg 1.10.0**: Table format with ACID guarantees
 - **MinIO**: S3-compatible object storage for Iceberg data files
 - **PostgreSQL**: Backend database for Polaris catalog metadata
+- **ClickHouse**: Real-time OLAP database for fast analytics
 
 ---
 
@@ -159,6 +167,36 @@ Both tables share the same schema, including the `profanity_type` field.
 
 ---
 
+## ClickHouse Setup & Configuration
+
+### 1. ClickHouse Service
+ClickHouse runs as a single-node instance (`clickhouse:25.3`) with HTTP (8123) and Native (9000) ports exposed.
+
+### 2. Automated Initialization
+The `clickhouse-setup` service waits for ClickHouse to be healthy and automatically creates the target table.
+
+```sql
+CREATE TABLE IF NOT EXISTS default.message_events
+(
+    account_id       String,
+    message_id       String,
+    message_body     String,
+    correlation_id   String,
+    message_status   String,
+    event_time       DateTime64(3),
+    profanity_type   String,
+    inserted_at      DateTime64(3) DEFAULT now()
+)
+ENGINE = ReplacingMergeTree(inserted_at)
+PARTITION BY toYYYYMM(event_time)
+ORDER BY (account_id, message_id);
+```
+
+### 3. Materialized Insertion Time
+The `inserted_at` column is populated via `DEFAULT now()` (or `MATERIALIZED now()` in setup) to allow `ReplacingMergeTree` to handle deduplication based on the latest insertion time.
+
+---
+
 ## Apache Flink Integration
 
 ### 1. Flink Job Overview
@@ -172,9 +210,10 @@ The Flink job reads JSON messages from Kafka, checks for profanity against a dyn
    - Loads profanity list from `src/main/resources/profanity_list.txt`.
    - Checks `message_body` against the list.
    - Sets `profanity_type` to `PROFANITY` or `SAFE`.
-4. **Dual Sinks**:
+4. **Sinks**:
    - **Kafka sink**: `output-topic` (only for messages with `profanity_type=PROFANITY`).
    - **Dynamic Iceberg Sink**: Routes to `profanity_messages` or `safe_messages` tables in Polaris based on `profanity_type`.
+   - **ClickHouse Sink**: Writes all messages to `message_events` table via Async Sink (RowBinary format).
 
 ### 2. Profanity Lookup & Tagging
 
@@ -248,8 +287,10 @@ quickstart/
 │   ├── model/
 │   │   └── MessageEvent.java           # POJO with ProfanityType enum
 │   ├── sink/
-│   │   ├── IcebergSinkFunction.java    # Dynamic Iceberg sink with routing logic
-│   │   └── DataToRowConverter.java     # Converts POJO to RowData
+│   │   ├── IcebergSinkFunction.java             # Dynamic Iceberg sink with routing logic
+│   │   ├── DataToRowConverter.java              # Converts POJO to RowData
+│   │   ├── MessageEventClickHouseConverter.java # POJO to ClickHouse RowBinary
+│   │   └── ClickHouseSinkFactory.java           # Configures Async Sink
 ├── src/main/resources/
 │   └── profanity_list.txt              # List of profanity words
 ├── pom.xml                             # Maven dependencies
@@ -284,16 +325,18 @@ docker-compose up -d
 ```
 
 **Startup Sequence:**
-1. Postgres -> Polaris -> MinIO
+1. Postgres -> Polaris -> MinIO -> ClickHouse
 2. Kafka -> init-kafka
 3. polaris-setup (creates catalog, namespace, `profanity_messages`, `safe_messages`)
-4. Flink Job
+4. clickhouse-setup (creates `message_events` table)
+5. Flink Job
 
 ### Step 3: View Logs
 
 ```bash
 docker logs -f jobmanager
 docker logs -f polaris-setup
+docker logs -f clickhouse-setup
 ```
 
 ---
@@ -361,6 +404,21 @@ If you use Big Data tools plugin from IntelliJ and connect to MinIO,
 you can browse the data files directly in the UI:
 ![img_2.png](img_2.png)
 
+**ClickHouse Verification:**
+
+You can check the `message_events` table in ClickHouse (via HTTP or Native client):
+
+```sql
+-- Count total events
+SELECT count() FROM default.message_events;
+
+-- View latest 5 events
+SELECT * FROM default.message_events ORDER BY event_time DESC LIMIT 5;
+
+-- Check profanity statistics
+SELECT profanity_type, count() FROM default.message_events GROUP BY profanity_type;
+```
+
 ---
 
 ## Schema Details
@@ -393,5 +451,10 @@ you can browse the data files directly in the UI:
 | `CHECKPOINT_INTERVAL` | `300000` | Flink checkpoint interval in ms (5 mins) |
 | `ICEBERG_TARGET_FILE_SIZE_BYTES` | `134217728` | Target Iceberg file size (128MB) |
 | `ICEBERG_DISTRIBUTION_MODE` | `HASH` | Distribution mode (HASH, NONE, RANGE) |
+| `CLICKHOUSE_JDBC_URL` | `http://clickhouse:8123` | ClickHouse HTTP endpoint |
+| `CLICKHOUSE_USER` | `default` | ClickHouse user |
+| `CLICKHOUSE_PASSWORD` | `password` | ClickHouse password |
+| `CLICKHOUSE_DATABASE` | `default` | ClickHouse database |
+| `CLICKHOUSE_TABLE` | `message_events` | ClickHouse table name |
 
 ---

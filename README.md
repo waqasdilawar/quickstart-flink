@@ -122,7 +122,7 @@ Initializes the Polaris database schema and creates default credentials (`admin`
 
 ### 3. Automated Catalog Initialization
 
-The `polaris-setup` container automates the creation of catalogs, namespaces, and tables. It now creates two tables to support the routing logic:
+The `polaris-setup` container automates the creation of catalogs, namespaces, and tables. It now creates two tables to support the routing logic. Both tables are partitioned by `day(timestamp)` to optimize query performance and manage file sizes.
 
 - **`profanity_messages`**: Stores messages identified as containing profanity.
 - **`safe_messages`**: Stores clean messages.
@@ -141,8 +141,17 @@ Both tables share the same schema, including the `profanity_type` field.
       {"id": 3, "name": "message_body", "required": false, "type": "string"},
       {"id": 4, "name": "correlation_id", "required": false, "type": "string"},
       {"id": 5, "name": "message_status", "required": false, "type": "string"},
-      {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"},
+      {"id": 6, "name": "timestamp", "required": false, "type": "timestamp"},
       {"id": 7, "name": "profanity_type", "required": false, "type": "string"}
+    ]
+  },
+  "spec": {
+    "fields": [
+      {
+        "name": "timestamp_day",
+        "transform": "day",
+        "source-id": 6
+      }
     ]
   }
 }
@@ -185,9 +194,14 @@ SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(event -> {
 
 ### 3. Dynamic Iceberg Sink Routing
 
-The project uses a custom `IcebergSinkFunction` that implements dynamic routing logic.
+The project uses a custom `IcebergSinkFunction` that implements dynamic routing logic and partitioning.
 
 ```java
+// Define Partition Spec
+PartitionSpec partitionSpec = PartitionSpec.builderFor(FILTERED_MESSAGE_SCHEMA)
+    .day("timestamp")
+    .build();
+
 DynamicIcebergSink.Builder<RowData> builder = DynamicIcebergSink.forInput(rowDataStream)
   .generator((row, out) -> {
     String profanityType = row.getString(6).toString();
@@ -201,7 +215,7 @@ DynamicIcebergSink.Builder<RowData> builder = DynamicIcebergSink.forInput(rowDat
         branch,
         FILTERED_MESSAGE_SCHEMA,
         row,
-        PartitionSpec.unpartitioned(),
+        partitionSpec,
         DistributionMode.HASH,
         1
       )
@@ -214,10 +228,10 @@ This ensures that `PROFANITY` messages go to the `profanity_messages` table and 
 
 ### 4. Checkpointing Configuration
 
-Ensures exactly-once processing semantics:
+Ensures exactly-once processing semantics and controls file commit frequency (Iceberg commits on checkpoint):
 
 ```java
-env.enableCheckpointing(30000);  // Every 30 seconds
+env.enableCheckpointing(300000);  // Every 5 minutes
 CheckpointConfig checkpointConfig = env.getCheckpointConfig();
 checkpointConfig.setCheckpointingConsistencyMode(CheckpointingMode.EXACTLY_ONCE);
 ```
@@ -339,6 +353,14 @@ Navigate to `http://localhost:9001` (admin/password).
 - `lakehouse/raw_messages/profanity_messages/data/`: Should contain parquet files for profane messages.
 - `lakehouse/raw_messages/safe_messages/data/`: Should contain parquet files for safe messages.
 
+![img.png](img.png)
+
+**Expected Structure:**
+
+If you use Big Data tools plugin from IntelliJ and connect to MinIO,
+you can browse the data files directly in the UI:
+![img_2.png](img_2.png)
+
 ---
 
 ## Schema Details
@@ -352,7 +374,7 @@ Navigate to `http://localhost:9001` (admin/password).
 | `message_body` | string | Message text content |
 | `correlation_id` | string | Request correlation ID |
 | `message_status` | string | Message delivery status |
-| `timestamp` | timestamptz | Event timestamp (UTC) |
+| `timestamp` | timestamp | Event timestamp |
 | `profanity_type` | string | `PROFANITY` or `SAFE` |
 
 ---
@@ -368,5 +390,8 @@ Navigate to `http://localhost:9001` (admin/password).
 | `CATALOG_NAME` | `polaris` | Catalog name in Flink |
 | `ICEBERG_NAMESPACE` | `raw_messages` | Namespace within catalog |
 | `WRITE_PARALLELISM` | `1` | Number of Iceberg writer tasks |
+| `CHECKPOINT_INTERVAL` | `300000` | Flink checkpoint interval in ms (5 mins) |
+| `ICEBERG_TARGET_FILE_SIZE_BYTES` | `134217728` | Target Iceberg file size (128MB) |
+| `ICEBERG_DISTRIBUTION_MODE` | `HASH` | Distribution mode (HASH, NONE, RANGE) |
 
 ---

@@ -5,6 +5,7 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.DistributionMode;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -27,7 +28,7 @@ public class IcebergSinkFunction {
     Types.NestedField.optional(3, "message_body", Types.StringType.get()),
     Types.NestedField.optional(4, "correlation_id", Types.StringType.get()),
     Types.NestedField.optional(5, "message_status", Types.StringType.get()),
-    Types.NestedField.optional(6, "timestamp", Types.TimestampType.withZone()),
+    Types.NestedField.optional(6, "timestamp", Types.TimestampType.withoutZone()),
     Types.NestedField.optional(7, "profanity_type", Types.StringType.get())
   );
 
@@ -37,10 +38,16 @@ public class IcebergSinkFunction {
     String namespace,
     String branch,
     Map<String, String> catalogProps,
-    int writeParallelism
+    int writeParallelism,
+    Long targetFileSizeBytes,
+    DistributionMode distributionMode
   ) {
-    LOG.info("Creating Iceberg Dynamic Sink Builder - Catalog: {}, Namespace: {}, Branch: {}, Write Parallelism: {}",
-      catalogName, namespace, branch, writeParallelism);
+    LOG.info("Creating Iceberg Dynamic Sink Builder - Catalog: {}, Namespace: {}, Branch: {}, Write Parallelism: {}, TargetFileSize: {}, DistMode: {}",
+      catalogName, namespace, branch, writeParallelism, targetFileSizeBytes, distributionMode);
+
+    PartitionSpec partitionSpec = PartitionSpec.builderFor(FILTERED_MESSAGE_SCHEMA)
+        .day("timestamp")
+        .build();
 
     DynamicIcebergSink.Builder<RowData> builder = DynamicIcebergSink.forInput(rowDataStream)
       .generator((row, out) -> {
@@ -57,8 +64,8 @@ public class IcebergSinkFunction {
               branch,
               FILTERED_MESSAGE_SCHEMA,
               row,
-              PartitionSpec.unpartitioned(),
-              DistributionMode.HASH,
+              partitionSpec,
+              distributionMode != null ? distributionMode : DistributionMode.HASH,
               1
             )
           );
@@ -70,6 +77,10 @@ public class IcebergSinkFunction {
       .catalogLoader(CatalogLoader.rest(catalogName, new org.apache.hadoop.conf.Configuration(), catalogProps))
       .writeParallelism(writeParallelism)
       .immediateTableUpdate(true);
+
+    if (targetFileSizeBytes != null) {
+      builder.set("write.target-file-size-bytes", String.valueOf(targetFileSizeBytes));
+    }
 
     LOG.info("Iceberg Dynamic Sink Builder created successfully - namespace: {}, writeParallelism: {}", namespace, writeParallelism);
     return builder;

@@ -5,6 +5,8 @@ import static org.myorg.quickstart.sink.IcebergSinkFunction.toRowDataStream;
 
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.data.RowData;
+import org.apache.iceberg.DistributionMode;
+import org.apache.iceberg.flink.sink.dynamic.DynamicIcebergSink;
 import org.myorg.quickstart.model.MessageEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,13 +68,22 @@ public class IcebergMessageEventSink implements MessageEventSink {
             catalogName, icebergNamespace, icebergBranch, writeParallelism);
 
         DataStream<RowData> rowStream = toRowDataStream(stream);
+
+        long targetFileSize = Long.parseLong(System.getenv().getOrDefault("ICEBERG_TARGET_FILE_SIZE_BYTES", "134217728"));
+        String distModeName = System.getenv().getOrDefault("ICEBERG_DISTRIBUTION_MODE", "HASH");
+        DistributionMode distributionMode = DistributionMode.valueOf(distModeName.toUpperCase());
+
+        LOG.info("Iceberg writer config: targetFileSize={}, distributionMode={}", targetFileSize, distributionMode);
+
         createIcebergSinkBuilder(
             rowStream,
             catalogName,
             icebergNamespace,
             icebergBranch,
             catalogProps,
-            writeParallelism
+            writeParallelism,
+            targetFileSize,
+            distributionMode
         ).append();
         LOG.info("Iceberg dynamic sink attached successfully");
     }

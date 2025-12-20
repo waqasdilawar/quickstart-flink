@@ -219,7 +219,9 @@ class IcebergSinkFunctionTest {
                 "test_namespace",
                 "main",
                 catalogProps,
-                1
+                1,
+                null,
+                null
             );
         }).doesNotThrowAnyException();
     }
@@ -244,7 +246,9 @@ class IcebergSinkFunctionTest {
                 "test_namespace",
                 "main",
                 catalogProps,
-                4
+                4,
+                null,
+                null
             );
         }).doesNotThrowAnyException();
     }
@@ -269,7 +273,9 @@ class IcebergSinkFunctionTest {
                 "test_namespace",
                 "feature-branch",
                 catalogProps,
-                1
+                1,
+                null,
+                null
             );
         }).doesNotThrowAnyException();
     }
@@ -293,7 +299,9 @@ class IcebergSinkFunctionTest {
                 "test_namespace",
                 "main",
                 catalogProps,
-                1
+                1,
+                null,
+                null
             );
         }).doesNotThrowAnyException();
     }
@@ -335,7 +343,10 @@ class IcebergSinkFunctionTest {
     @DisplayName("Should convert empty stream without errors")
     void shouldConvertEmptyStream() {
         // Given
-        DataStream<MessageEvent> emptyStream = env.fromCollection(java.util.Collections.emptyList());
+        DataStream<MessageEvent> emptyStream = env.fromCollection(
+            java.util.Collections.emptyList(),
+            org.apache.flink.api.common.typeinfo.TypeInformation.of(MessageEvent.class)
+        );
 
         // When/Then
         assertThatCode(() -> {

@@ -18,36 +18,17 @@
 
 package org.myorg.quickstart.job;
 
-import static org.myorg.quickstart.sink.IcebergSinkFunction.createIcebergSinkBuilder;
-import static org.myorg.quickstart.sink.IcebergSinkFunction.toRowDataStream;
-
-import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.StateBackendOptions;
-import org.apache.flink.connector.base.DeliveryGuarantee;
-import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
-import org.apache.flink.connector.kafka.sink.KafkaSink;
-import org.apache.flink.connector.kafka.source.KafkaSource;
-import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.core.execution.CheckpointingMode;
-import org.apache.flink.formats.json.JsonDeserializationSchema;
-import org.apache.flink.formats.json.JsonSerializationSchema;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.SerializationFeature;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.table.data.RowData;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
-import java.util.List;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -57,21 +38,89 @@ import org.myorg.quickstart.model.MessageEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Main Flink Streaming Job for processing MessageEvents with profanity detection.
+ * Uses dependency injection for sources and sinks to enable testability.
+ */
 public class DataStreamJob {
 	private static final Logger LOG = LoggerFactory.getLogger(DataStreamJob.class);
 
+	private final MessageEventSource source;
+	private final MessageEventSink profanitySink;
+	private final MessageEventSink icebergSink;
+
+	/**
+	 * Creates a job using the provided source and sinks (for testing).
+	 *
+	 * @param source the source of MessageEvents
+	 * @param profanitySink the sink for profane messages
+	 * @param icebergSink the sink for all messages to Iceberg
+	 */
+	public DataStreamJob(MessageEventSource source, MessageEventSink profanitySink, MessageEventSink icebergSink) {
+		this.source = source;
+		this.profanitySink = profanitySink;
+		this.icebergSink = icebergSink;
+	}
+
+	/**
+	 * Creates a job with default Kafka source and production sinks.
+	 */
+	public DataStreamJob() {
+		this(
+			new KafkaMessageEventSource(),
+			new KafkaProfanitySink(),
+			new IcebergMessageEventSink()
+		);
+	}
+
 	public static void main(String[] args) throws Exception {
+		DataStreamJob job = new DataStreamJob();
+		job.execute();
+	}
+
+	/**
+	 * Executes the Flink streaming job.
+	 *
+	 * @throws Exception if job execution fails
+	 */
+	public void execute() throws Exception {
 		LOG.info("Starting Flink Iceberg Integration Job");
-		var env = StreamExecutionEnvironment.getExecutionEnvironment();
+		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+		configureEnvironment(env);
+
+		// Get source stream
+		DataStream<MessageEvent> stream = source.getSource(env);
+
+		// Process stream
+		Set<String> profanities = loadProfanities();
+		LOG.info("Loaded {} profanity words for message classification", profanities.size());
+
+		SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(new ProfanityClassifier(profanities));
+
+		// Attach sinks
+		profanitySink.addSink(
+			processedStream.filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+		);
+
+		icebergSink.addSink(processedStream);
 
 		String jobName = System.getenv().getOrDefault("JOB_NAME", "Flink_Iceberg_Integration_Job");
-		LOG.info("Job name: {}", jobName);
+		LOG.info("Starting job execution: {}", jobName);
+		env.execute(jobName);
+		LOG.info("Job execution completed: {}", jobName);
+	}
+
+	/**
+	 * Configures the execution environment with checkpointing and state backend settings.
+	 *
+	 * @param env the StreamExecutionEnvironment to configure
+	 */
+	private void configureEnvironment(StreamExecutionEnvironment env) {
 		String stateBackend = System.getenv().getOrDefault("STATE_BACKEND", "rocksdb");
 		String checkpointStorage = System.getenv().getOrDefault("CHECKPOINT_STORAGE", "filesystem");
 		String checkpointsDirectory = System.getenv().getOrDefault("CHECKPOINTS_DIRECTORY", "file:///tmp/checkpoints");
 		String savepointsDirectory = System.getenv().getOrDefault("SAVEPOINT_DIRECTORY", "file:///tmp/savepoints");
-		String s3AccessKey = System.getenv().getOrDefault("S3_ACCESS_KEY", "admin");
-		String s3SecretKey = System.getenv().getOrDefault("S3_SECRET_KEY", "password");
 
 		LOG.info("Configuring state backend: {}, checkpoint storage: {}", stateBackend, checkpointStorage);
 		LOG.info("Checkpoints directory: {}, Savepoints directory: {}", checkpointsDirectory, savepointsDirectory);
@@ -85,7 +134,6 @@ public class DataStreamJob {
 		config.set(CheckpointingOptions.FS_WRITE_BUFFER_SIZE, 64 * 1024);
 
 		env.configure(config);
-
 		env.enableCheckpointing(30000);
 		LOG.info("Checkpointing enabled with 30s interval");
 
@@ -96,132 +144,9 @@ public class DataStreamJob {
 		checkpointConfig.setMaxConcurrentCheckpoints(1);
 		checkpointConfig.setTolerableCheckpointFailureNumber(3);
 		LOG.info("Checkpoint config: mode=EXACTLY_ONCE, timeout=600s, max concurrent=1");
-
-		String bootstrap_servers = System.getenv().getOrDefault("KAFKA_BOOTSTRAP_SERVERS", "broker:29092");
-		LOG.info("Configuring Kafka source: bootstrap={}, topic=profanity_words, group=flink-test", bootstrap_servers);
-
-		JsonDeserializationSchema<MessageEvent> fcdrJsonFormat = new JsonDeserializationSchema<>(MessageEvent.class);
-
-		KafkaSource<MessageEvent> ksource = KafkaSource.<MessageEvent>builder()
-						.setBootstrapServers(bootstrap_servers)
-						.setTopics("profanity_words")
-						.setGroupId("flink-test")
-						.setStartingOffsets(OffsetsInitializer.earliest())
-						.setValueOnlyDeserializer(fcdrJsonFormat)
-						.setProperty("acks", "all")
-						.build();
-		LOG.info("Kafka source configured successfully");
-
-		LOG.info("Configuring watermark strategy with 10s bounded out-of-orderness");
-		WatermarkStrategy<MessageEvent> watermarkStrategy = WatermarkStrategy
-						.<MessageEvent>forBoundedOutOfOrderness(java.time.Duration.ofSeconds(10))
-						.withTimestampAssigner((event, recordTimestamp) -> {
-							try {
-								String timestampStr = event.getTimestamp();
-								if (timestampStr != null && !timestampStr.isEmpty()) {
-									return java.time.Instant.parse(timestampStr).toEpochMilli();
-								}
-							} catch (Exception e) {
-								LOG.warn("Failed to parse timestamp '{}' for event, using current time. Error: {}",
-									event.getTimestamp(), e.getMessage());
-							}
-							return System.currentTimeMillis();
-						});
-
-		DataStreamSource<MessageEvent> stream = env.fromSource(
-						ksource,
-						watermarkStrategy,
-						"Kafka Source"
-		);
-
-		Set<String> profanities = loadProfanities();
-		LOG.info("Loaded {} profanity words for message classification", profanities.size());
-
-		SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(event -> {
-			boolean isProfane = containsProfanity(event.getMessageBody(), profanities);
-			event.setProfanityType(isProfane ? MessageEvent.ProfanityType.PROFANITY : MessageEvent.ProfanityType.SAFE);
-			LOG.debug("Message {} classified as: {} (body: '{}')",
-				event.getMessageId(), event.getProfanityType(), event.getMessageBody());
-			return event;
-		});
-
-		LOG.info("Configuring Kafka sink for profane messages: topic=output-topic");
-		KafkaSink<MessageEvent> kafkaSink = KafkaSink.<MessageEvent>builder()
-			.setBootstrapServers(bootstrap_servers)
-			.setRecordSerializer(KafkaRecordSerializationSchema.builder()
-														 .setTopic("output-topic")
-														 .setValueSerializationSchema(new JsonSerializationSchema<MessageEvent>(
-															 () -> new ObjectMapper().registerModule(new JavaTimeModule())
-																 .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)))
-														 .build()
-			)
-			.setProperty("acks", "all")
-			.setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
-			.build();
-
-		processedStream.filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
-			.sinkTo(kafkaSink).name("Kafka Sink (Profane)");
-		LOG.info("Kafka sink attached for profanity messages");
-
-		String polarisUri = System.getenv().getOrDefault("POLARIS_URI", "http://polaris:8181/api/catalog");
-		String polarisCredential = System.getenv().getOrDefault("POLARIS_CREDENTIAL", "admin:password");
-		String polarisWarehouse = System.getenv().getOrDefault("POLARIS_WAREHOUSE", "lakehouse");
-		String polarisScope = System.getenv().getOrDefault("POLARIS_SCOPE", "PRINCIPAL_ROLE:ALL");
-		LOG.info("Polaris catalog configuration: uri={}, warehouse={}, scope={}", polarisUri, polarisWarehouse, polarisScope);
-
-		String s3Endpoint = System.getenv().getOrDefault("S3_ENDPOINT", "http://minio:9000");
-		String s3PathStyleAccess = System.getenv().getOrDefault("S3_PATH_STYLE_ACCESS", "true");
-		String clientRegion = System.getenv().getOrDefault("CLIENT_REGION", "us-east-1");
-		LOG.info("S3 configuration: endpoint={}, region={}, path-style-access={}", s3Endpoint, clientRegion, s3PathStyleAccess);
-
-		String oauth2ServerUri = System.getenv().getOrDefault(
-			"OAUTH2_SERVER_URI",
-			"http://polaris:8181/api/catalog/v1/oauth/tokens"
-		);
-		String ioImpl = System.getenv().getOrDefault(
-			"IO_IMPL",
-			"org.apache.iceberg.aws.s3.S3FileIO"
-		);
-		LOG.info("OAuth2 server: {}, IO implementation: {}", oauth2ServerUri, ioImpl);
-
-		Map<String, String> catalogProps = new HashMap<>();
-		catalogProps.put("uri", polarisUri);
-		catalogProps.put("credential", polarisCredential);
-		catalogProps.put("warehouse", polarisWarehouse);
-		catalogProps.put("scope", polarisScope);
-		catalogProps.put("s3.endpoint", s3Endpoint);
-		catalogProps.put("s3.access-key-id", s3AccessKey);
-		catalogProps.put("s3.secret-access-key", s3SecretKey);
-		catalogProps.put("s3.path-style-access", s3PathStyleAccess);
-		catalogProps.put("client.region", clientRegion);
-		catalogProps.put("io-impl", ioImpl);
-		catalogProps.put("rest.auth.type", "oauth2");
-		catalogProps.put("oauth2-server-uri", oauth2ServerUri);
-
-		String catalogName = System.getenv().getOrDefault("CATALOG_NAME", "polaris");
-		String icebergNamespace = System.getenv().getOrDefault("ICEBERG_NAMESPACE", "raw_data");
-		String icebergBranch = System.getenv().getOrDefault("ICEBERG_BRANCH", "main");
-		int writeParallelism = Integer.parseInt(System.getenv().getOrDefault("WRITE_PARALLELISM", "1"));
-		LOG.info("Creating Iceberg dynamic sink: catalog={}, namespace={}, branch={}, parallelism={}",
-			catalogName, icebergNamespace, icebergBranch, writeParallelism);
-
-		DataStream<RowData> rowStream = toRowDataStream(processedStream);
-		createIcebergSinkBuilder(
-			rowStream,
-			catalogName,
-			icebergNamespace,
-			icebergBranch,
-			catalogProps,
-			writeParallelism
-		).append();
-		LOG.info("Iceberg dynamic sink attached successfully");
-
-		LOG.info("Starting job execution: {}", jobName);
-		env.execute(jobName);
-		LOG.info("Job execution completed: {}", jobName);
 	}
 
-	private static Set<String> loadProfanities() {
+	public static Set<String> loadProfanities() {
 		Set<String> profanities = new HashSet<>();
 		try (InputStream is = DataStreamJob.class.getClassLoader().getResourceAsStream("profanity_list.txt")) {
 			if (is != null) {
@@ -240,16 +165,4 @@ public class DataStreamJob {
 		return profanities;
 	}
 
-	private static boolean containsProfanity(String text, Set<String> profanities) {
-		if (text == null || text.isEmpty()) {
-			return false;
-		}
-		String lower = text.toLowerCase();
-		for (String badWord : profanities) {
-			if (lower.contains(badWord.toLowerCase())) {
-				return true;
-			}
-		}
-		return false;
-	}
 }

@@ -11,7 +11,8 @@ This documentation is split into multiple files for easier navigation:
 | [README-MAIN.md](./README-MAIN.md) | **You are here** - Overview and Architecture |
 | [README-KAFKA.md](./README-KAFKA.md) | Apache Kafka - Message Streaming |
 | [README-FLINK.md](./flink/README-FLINK.md) | Apache Flink - Stream Processing |
-| [README-ICEBERG.md](./iceberg/README-ICEBERG.md) | Apache Iceberg, Polaris & MinIO - Data Lake |
+| [README-ICEBERG.md](./iceberg/README-ICEBERG.md) | Apache Iceberg & MinIO - Data Lake |
+| [README-POLARIS.md](./polaris/README-POLARIS.md) | Apache Polaris - Iceberg Catalog Service |
 | [README-CLICKHOUSE.md](./clickhouse/README-CLICKHOUSE.md) | ClickHouse - Analytics Database |
 | [README-DOCKER.md](./docker/README-DOCKER.md) | Docker Infrastructure |
 
@@ -318,8 +319,9 @@ Now that you understand the big picture, dive into the specific components:
 1. **[Kafka Documentation](./README-KAFKA.md)** - Learn how messages flow through Kafka
 2. **[Flink Documentation](./flink/README-FLINK.md)** - Understand the stream processing logic
 3. **[Iceberg Documentation](./iceberg/README-ICEBERG.md)** - See how the Data Lake works
-4. **[ClickHouse Documentation](./clickhouse/README-CLICKHOUSE.md)** - Explore real-time analytics
-5. **[Docker Documentation](./docker/README-DOCKER.md)** - Understand the infrastructure
+4. **[Polaris Documentation](./polaris/README-POLARIS.md)** - Deep dive into the catalog service
+5. **[ClickHouse Documentation](./clickhouse/README-CLICKHOUSE.md)** - Explore real-time analytics
+6. **[Docker Documentation](./docker/README-DOCKER.md)** - Understand the infrastructure
 
 ---
 

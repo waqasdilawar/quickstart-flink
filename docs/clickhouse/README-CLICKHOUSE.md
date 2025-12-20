@@ -403,7 +403,7 @@ WHERE timestamp > '2025-01-01';
 |----------|---------|-------------|
 | `CLICKHOUSE_JDBC_URL` | `http://clickhouse:8123` | ClickHouse HTTP endpoint |
 | `CLICKHOUSE_USER` | `default` | ClickHouse username |
-| `CLICKHOUSE_PASSWORD` | `password` | ClickHouse password |
+| `CLICKHOUSE_PASSWORD` | `changeme` | ClickHouse password (code default; docker-compose uses `password`) |
 | `CLICKHOUSE_DATABASE` | `default` | Target database |
 | `CLICKHOUSE_TABLE` | `message_events` | Target table |
 

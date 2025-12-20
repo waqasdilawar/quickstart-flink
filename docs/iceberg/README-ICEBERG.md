@@ -1,10 +1,12 @@
-# Apache Iceberg, Polaris & MinIO - Data Lake Deep Dive
+# Apache Iceberg & MinIO - Data Lake Deep Dive
+
+> 📖 **See Also**: [Apache Polaris Catalog Documentation](../polaris/README-POLARIS.md) for in-depth coverage of the catalog service.
 
 ## Table of Contents
 1. [Overview](#overview)
 2. [Data Lake Architecture](#data-lake-architecture)
 3. [Apache Iceberg Fundamentals](#apache-iceberg-fundamentals)
-4. [Apache Polaris Catalog](#apache-polaris-catalog)
+4. [Apache Polaris Catalog Overview](#apache-polaris-catalog-overview)
 5. [MinIO Object Storage](#minio-object-storage)
 6. [Flink Integration](#flink-integration)
 7. [Dynamic Routing Implementation](#dynamic-routing-implementation)
@@ -164,7 +166,9 @@ s3://lakehouse/
 
 ---
 
-## Apache Polaris Catalog
+## Apache Polaris Catalog Overview
+
+> 📖 **For complete Polaris documentation**, see [README-POLARIS.md](../polaris/README-POLARIS.md)
 
 ### What is Polaris?
 
@@ -174,6 +178,14 @@ s3://lakehouse/
 - **REST API**: Standard HTTP interface for table operations
 - **OAuth2 Security**: Token-based authentication
 - **RBAC**: Role-based access control for catalogs and tables
+
+**Quick Summary:**
+- Polaris stores table metadata in PostgreSQL
+- Exposes REST API on port 8181
+- Tracks file locations in MinIO/S3
+- Handles authentication and authorization
+
+For details on OAuth2 flow, RBAC configuration, API endpoints, and troubleshooting, refer to the [dedicated Polaris documentation](../polaris/README-POLARIS.md).
 
 ### Polaris Startup Sequence
 
@@ -211,6 +223,8 @@ sequenceDiagram
 
 ### Polaris API Reference
 
+> 📖 See [README-POLARIS.md - REST Catalog API](../polaris/README-POLARIS.md#rest-catalog-api) for complete API documentation with examples.
+
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/catalog/v1/oauth/tokens` | POST | OAuth2 token exchange |
@@ -220,6 +234,8 @@ sequenceDiagram
 | `/api/catalog/v1/{catalog}/namespaces/{ns}/tables/{table}` | GET | Get table metadata |
 
 ### RBAC Configuration
+
+> 📖 See [README-POLARIS.md - RBAC & Permissions](../polaris/README-POLARIS.md#rbac--permissions) for detailed permission model.
 
 ```mermaid
 flowchart TB
@@ -462,6 +478,7 @@ profanity_messages/data/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `CATALOG_NAME` | `polaris` | Iceberg catalog name |
 | `POLARIS_URI` | `http://polaris:8181/api/catalog` | Polaris REST endpoint |
 | `POLARIS_CREDENTIAL` | `admin:password` | OAuth2 client credentials |
 | `POLARIS_WAREHOUSE` | `lakehouse` | Iceberg warehouse name |
@@ -471,7 +488,7 @@ profanity_messages/data/
 | `S3_SECRET_KEY` | `password` | MinIO secret key |
 | `S3_PATH_STYLE_ACCESS` | `true` | Use path-style URLs |
 | `CLIENT_REGION` | `us-east-1` | AWS region (dummy for MinIO) |
-| `ICEBERG_NAMESPACE` | `raw_messages` | Iceberg namespace |
+| `ICEBERG_NAMESPACE` | `raw_data` | Iceberg namespace |
 | `ICEBERG_BRANCH` | `main` | Iceberg branch |
 | `WRITE_PARALLELISM` | `1` | Sink parallelism |
 | `ICEBERG_TARGET_FILE_SIZE_BYTES` | `134217728` | Target file size (128MB) |

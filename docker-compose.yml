@@ -385,6 +385,19 @@ services:
         
         echo "✅ Principal 'clickhouse_user' created with Client ID: $$CH_CLIENT_ID"
 
+        echo ""
+        echo "=========================================="
+        echo "📋 POLARIS CREDENTIALS - SAVE THESE!"
+        echo "=========================================="
+        echo "Principal: clickhouse_user"
+        echo "Client ID: $$CH_CLIENT_ID"
+        echo "Client Secret: $$CH_CLIENT_SECRET"
+        echo ""
+        echo "Combined Format (for catalog_credential):"
+        echo "$$CH_CLIENT_ID:$$CH_CLIENT_SECRET"
+        echo "=========================================="
+        echo ""
+
         # 2. Create Principal Role 'clickhouse_role'
         echo "Creating Principal Role 'clickhouse_role'..."
         curl -s -o /dev/null -X POST http://polaris:8181/api/management/v1/principal-roles \

@@ -20,31 +20,31 @@ A comprehensive streaming data pipeline that ingests JSON messages from Kafka, f
 
 ## Architecture Overview
 
-```
-┌─────────────┐      ┌──────────────┐      ┌─────────────┐
-│   Kafka     │─────▶│  Flink Job   │─────▶│   Kafka     │
-│ (profanity_ │      │  (Filter by  │      │ (output-    │
-│   words)    │      │   "gun")     │      │   topic)    │
-└─────────────┘      └──────┬───────┘      └─────────────┘
-                             │
-                             ▼
-                     ┌───────────────┐
-                     │  Iceberg Sink │
-                     └───────┬───────┘
-                             │
-                ┌────────────┴──────────────┐
-                ▼                           ▼
-        ┌──────────────┐          ┌─────────────┐
-        │   Polaris    │          │    MinIO    │
-        │  (Catalog    │◀────────▶│ (S3 Storage)│
-        │  Metadata)   │          └─────────────┘
-        └──────────────┘
-                ▲
-                │
-        ┌───────────────┐
-        │  PostgreSQL   │
-        │  (Polaris DB) │
-        └───────────────┘
+```mermaid
+graph LR
+    %% Nodes
+    K1[Kafka\nprofanity_words]
+    Job(Flink Job\nFilter: 'gun')
+    K2[Kafka\noutput-topic]
+    Sink[Iceberg Sink]
+    Polaris[Apache Polaris\nCatalog]
+    MinIO[(MinIO\nS3 Storage)]
+    Postgres[(PostgreSQL\nDB)]
+
+    %% Flow
+    K1 -->|JSON| Job
+    Job -->|Filtered| K2
+    Job -->|Filtered| Sink
+    
+    Sink -- Metadata --> Polaris
+    Sink -- Parquet --> MinIO
+    
+    Polaris ---|JDBC| Postgres
+
+    %% Styling
+    style Job fill:#f9f,stroke:#333,stroke-width:2px
+    style Polaris fill:#ccf,stroke:#333,stroke-width:2px
+    style MinIO fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
 **Components:**
@@ -343,12 +343,16 @@ public class MessageEvent {
 Handles out-of-order events using event-time semantics:
 
 ```java
-WatermarkStrategy<MessageEvent> watermarkStrategy = WatermarkStrategy
-    .<MessageEvent>forBoundedOutOfOrderness(Duration.ofSeconds(10))
-    .withTimestampAssigner((event, recordTimestamp) -> {
-        String timestampStr = event.getTimestamp();
-        return Instant.parse(timestampStr).toEpochMilli();
-    });
+class Example {
+  void configure() {
+    WatermarkStrategy<MessageEvent> watermarkStrategy = WatermarkStrategy
+        .<MessageEvent>forBoundedOutOfOrderness(Duration.ofSeconds(10))
+        .withTimestampAssigner((event, recordTimestamp) -> {
+          String timestampStr = event.getTimestamp();
+          return Instant.parse(timestampStr).toEpochMilli();
+        });
+  }
+}
 ```
 
 **Why 10 seconds?**
@@ -361,8 +365,12 @@ WatermarkStrategy<MessageEvent> watermarkStrategy = WatermarkStrategy
 Simple case-insensitive profanity check:
 
 ```java
-SingleOutputStreamOperator<MessageEvent> filtered = stream
-    .filter(msg -> msg.getMessageBody().toLowerCase().contains("gun"));
+class Example {
+  void configure(DataStream<MessageEvent> stream) {
+    SingleOutputStreamOperator<MessageEvent> filtered = stream
+        .filter(msg -> msg.getMessageBody().toLowerCase().contains("gun"));
+  }
+}
 ```
 
 ### 5. Iceberg Sink Configuration
@@ -370,29 +378,33 @@ SingleOutputStreamOperator<MessageEvent> filtered = stream
 Connects to Polaris catalog and writes Parquet files to MinIO:
 
 ```java
-Map<String, String> catalogProps = new HashMap<>();
-catalogProps.put("uri", "http://polaris:8181/api/catalog");
-catalogProps.put("credential", "admin:password");
-catalogProps.put("warehouse", "lakehouse");
-catalogProps.put("scope", "PRINCIPAL_ROLE:ALL");
-catalogProps.put("rest.auth.type", "oauth2");
-catalogProps.put("oauth2-server-uri", "http://polaris:8181/api/catalog/v1/oauth/tokens");
-catalogProps.put("s3.endpoint", "http://minio:9000");
-catalogProps.put("s3.access-key-id", "admin");
-catalogProps.put("s3.secret-access-key", "password");
-catalogProps.put("s3.path-style-access", "true");
-catalogProps.put("client.region", "us-east-1");
-catalogProps.put("io-impl", "org.apache.iceberg.aws.s3.S3FileIO");
+class Example {
+  void configure(SingleOutputStreamOperator<MessageEvent> filtered) {
+    Map<String, String> catalogProps = new HashMap<>();
+    catalogProps.put("uri", "http://polaris:8181/api/catalog");
+    catalogProps.put("credential", "admin:password");
+    catalogProps.put("warehouse", "lakehouse");
+    catalogProps.put("scope", "PRINCIPAL_ROLE:ALL");
+    catalogProps.put("rest.auth.type", "oauth2");
+    catalogProps.put("oauth2-server-uri", "http://polaris:8181/api/catalog/v1/oauth/tokens");
+    catalogProps.put("s3.endpoint", "http://minio:9000");
+    catalogProps.put("s3.access-key-id", "admin");
+    catalogProps.put("s3.secret-access-key", "password");
+    catalogProps.put("s3.path-style-access", "true");
+    catalogProps.put("client.region", "us-east-1");
+    catalogProps.put("io-impl", "org.apache.iceberg.aws.s3.S3FileIO");
 
-DataStream<RowData> icebergRowStream = toRowDataStream(filtered);
-createIcebergSinkBuilder(
-    icebergRowStream,
-    "polaris",              // catalog name
-    "raw_messages",         // namespace
-    "main",                 // branch
-    catalogProps,
-    1                       // write parallelism
-).append();
+    DataStream<RowData> icebergRowStream = toRowDataStream(filtered);
+    createIcebergSinkBuilder(
+        icebergRowStream,
+        "polaris",              // catalog name
+        "raw_messages",         // namespace
+        "main",                 // branch
+        catalogProps,
+        1                       // write parallelism
+    ).append();
+  }
+}
 ```
 
 **Key Properties:**
@@ -417,14 +429,18 @@ In the current quickstart we always route to `filtered_messages`, so it behaves 
 Ensures exactly-once processing semantics:
 
 ```java
-env.enableCheckpointing(30000);  // Every 30 seconds
+class Example {
+  void configure(StreamExecutionEnvironment env) {
+    env.enableCheckpointing(30000);  // Every 30 seconds
 
-CheckpointConfig checkpointConfig = env.getCheckpointConfig();
-checkpointConfig.setCheckpointingConsistencyMode(CheckpointingMode.EXACTLY_ONCE);
-checkpointConfig.setMinPauseBetweenCheckpoints(30000);
-checkpointConfig.setCheckpointTimeout(600000);  // 10 minutes
-checkpointConfig.setMaxConcurrentCheckpoints(1);
-checkpointConfig.setTolerableCheckpointFailureNumber(3);
+    CheckpointConfig checkpointConfig = env.getCheckpointConfig();
+    checkpointConfig.setCheckpointingConsistencyMode(CheckpointingMode.EXACTLY_ONCE);
+    checkpointConfig.setMinPauseBetweenCheckpoints(30000);
+    checkpointConfig.setCheckpointTimeout(600000);  // 10 minutes
+    checkpointConfig.setMaxConcurrentCheckpoints(1);
+    checkpointConfig.setTolerableCheckpointFailureNumber(3);
+  }
+}
 ```
 
 **State Backend:**

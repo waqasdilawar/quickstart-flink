@@ -116,8 +116,10 @@ services:
     image: alpine/curl
     container_name: polaris-setup
     depends_on:
-      - polaris
-      - minio-client
+      polaris:
+        condition: service_healthy
+      minio-client:
+        condition: service_started
     networks:
       - flink-network
     environment:
@@ -398,8 +400,10 @@ services:
       - WRITE_PARALLELISM=1
       - KAFKA_BOOTSTRAP_SERVERS=broker:29092
     depends_on:
-      - init-kafka
-      - polaris-setup
+      init-kafka:
+        condition: service_completed_successfully
+      polaris-setup:
+        condition: service_completed_successfully
     networks:
       - flink-network
 
@@ -435,8 +439,10 @@ services:
       - TABLE_NAME=filtered_messages
       - WRITE_PARALLELISM=1
     depends_on:
-      - init-kafka
-      - polaris-setup
+      init-kafka:
+        condition: service_completed_successfully
+      polaris-setup:
+        condition: service_completed_successfully
     networks:
       - flink-network
 

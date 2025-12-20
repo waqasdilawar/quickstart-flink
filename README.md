@@ -199,26 +199,11 @@ The `inserted_at` column is populated via `DEFAULT now()` (or `MATERIALIZED now(
 
 You can query the Iceberg tables managed by Polaris directly from ClickHouse.
 
-#### Step 1: Create ClickHouse User & Permissions (Fix for "Missing Step")
+#### Step 1: Create the Database
 
-The default `admin` principal may lack the necessary privileges (`TABLE_READ_DATA`, `LOAD_TABLE_WITH_READ_DELEGATION`) required by ClickHouse to access the catalog and vend credentials.
+The ClickHouse user (`clickhouse_user`) and necessary permissions are **automatically configured** during the Docker Compose setup. The `create_db.sql` file is pre-configured with the correct credentials.
 
-Run the provided setup script to create a dedicated `clickhouse_user`, assign roles, and grant permissions:
-
-```bash
-chmod +x setup_clickhouse_user.sh
-./setup_clickhouse_user.sh
-```
-
-**What this script does:**
-1. Creates a `clickhouse_user` principal and `clickhouse_role` in Polaris.
-2. Assigns the `catalog_admin` catalog role (which has broad permissions on `lakehouse` catalog) to the `clickhouse_role`.
-3. Explicitly grants `TABLE_READ_DATA` and `TABLE_WRITE_DATA` to `catalog_admin` to ensure access is active.
-4. **Updates `create_db.sql`** with the generated Client ID and Secret.
-
-#### Step 2: Create the Database
-
-Once the user is created and `create_db.sql` is updated, run the SQL script in ClickHouse:
+Simply run the SQL script in ClickHouse:
 
 ```bash
 curl -s "http://localhost:8123/?allow_experimental_database_iceberg=1" --data-binary @create_db.sql
@@ -226,7 +211,7 @@ curl -s "http://localhost:8123/?allow_experimental_database_iceberg=1" --data-bi
 
 (Or paste the content of `create_db.sql` into your ClickHouse client).
 
-#### Step 3: Query Data
+#### Step 2: Query Data
 
 **Option A: Using DataLakeCatalog (Metadata Integration)**
 
@@ -260,6 +245,37 @@ SELECT * FROM iceberg(
 ```
 
 This confirms that ClickHouse can read the Iceberg metadata and Parquet files created by Flink.
+
+---
+
+### 4. Security & Permissions (RBAC)
+
+Polaris uses a sophisticated role-based access control (RBAC) model. For a production-ready setup, we separate concerns using `principal roles` and `catalog roles`.
+
+#### RBAC Hierarchy Implemented
+
+1.  **Principals**:
+    *   `root` (Admin user): Assigned `data_engineer` role.
+    *   `clickhouse_user`: Assigned `clickhouse_role`.
+2.  **Principal Roles**:
+    *   `data_engineer`: Intended for human admins/engineers. Mapped to `catalog_admin`.
+    *   `clickhouse_role`: Intended for the ClickHouse service. Mapped to `catalog_admin`.
+3.  **Catalog Roles**:
+    *   `catalog_admin`: Has broad permissions on the `lakehouse` catalog.
+4.  **Privileges**:
+    *   `CATALOG_MANAGE_CONTENT`: Allows managing content (tables, views) in the catalog.
+    *   `TABLE_READ_DATA` / `TABLE_WRITE_DATA`: Specific data access privileges.
+
+#### Automated Permission Setup
+
+The `polaris-setup` service in `docker-compose.yml` automatically configures the RBAC hierarchy on startup:
+
+1.  Grants `CATALOG_MANAGE_CONTENT`, `TABLE_READ_DATA`, and `TABLE_WRITE_DATA` to the `catalog_admin` catalog role.
+2.  Creates the `data_engineer` principal role.
+3.  Assigns `catalog_admin` to `data_engineer`.
+4.  Assigns `data_engineer` to the `root` principal.
+
+This ensures that the admin user has full control over the catalog content and that permissions are ready for integration services.
 
 ---
 

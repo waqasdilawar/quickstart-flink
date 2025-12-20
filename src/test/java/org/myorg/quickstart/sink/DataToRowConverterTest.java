@@ -370,4 +370,52 @@ class DataToRowConverterTest {
             assertThat(result.getString(6).toString()).isEqualTo(type.name());
         }
     }
+
+    @Test
+    @DisplayName("Should handle event with all fields populated")
+    void shouldHandleEventWithAllFieldsPopulated() throws Exception {
+        // Given
+        MessageEvent event = new MessageEvent();
+        event.setAccountId("acc-999");
+        event.setMessageId("msg-999");
+        event.setMessageBody("Complete message");
+        event.setCorrelationId("corr-999");
+        event.setMessageStatus("DELIVERED");
+        event.setTimestamp("2025-06-15T14:30:00.123Z");
+        event.setProfanityType(MessageEvent.ProfanityType.PROFANITY);
+
+        // When
+        RowData result = converter.map(event);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getArity()).isEqualTo(7);
+        assertThat(result.getString(0).toString()).isEqualTo("acc-999");
+        assertThat(result.getString(1).toString()).isEqualTo("msg-999");
+        assertThat(result.getString(2).toString()).isEqualTo("Complete message");
+        assertThat(result.getString(3).toString()).isEqualTo("corr-999");
+        assertThat(result.getString(4).toString()).isEqualTo("DELIVERED");
+        assertThat(result.getTimestamp(5, 6)).isNotNull();
+        assertThat(result.getString(6).toString()).isEqualTo("PROFANITY");
+    }
+
+    @Test
+    @DisplayName("Should handle whitespace in fields")
+    void shouldHandleWhitespaceInFields() throws Exception {
+        // Given
+        MessageEvent event = new MessageEvent();
+        event.setAccountId("  ");
+        event.setMessageId(" msg ");
+        event.setMessageBody("  content  ");
+        event.setTimestamp("2025-01-01T10:00:00Z");
+        event.setProfanityType(MessageEvent.ProfanityType.SAFE);
+
+        // When
+        RowData result = converter.map(event);
+
+        // Then
+        assertThat(result.getString(0).toString()).isEqualTo("  ");
+        assertThat(result.getString(1).toString()).isEqualTo(" msg ");
+        assertThat(result.getString(2).toString()).isEqualTo("  content  ");
+    }
 }

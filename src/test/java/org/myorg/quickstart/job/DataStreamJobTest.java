@@ -159,6 +159,54 @@ class DataStreamJobTest {
         assertDoesNotThrow(() -> new DataStreamJob());
     }
 
+    @Test
+    void testLoadProfanitiesReturnsNonEmptySet() {
+        var profanities = DataStreamJob.loadProfanities();
+        assertNotNull(profanities);
+        assertFalse(profanities.isEmpty());
+        assertTrue(profanities.contains("gun"));
+    }
+
+    @Test
+    void testJobWithMultipleProfaneAndSafeMessages() throws Exception {
+        List<MessageEvent> sourceData = new ArrayList<>();
+
+        // Add multiple profane messages
+        for (int i = 0; i < 5; i++) {
+            MessageEvent profaneMsg = new MessageEvent();
+            profaneMsg.setMessageId("profane-" + i);
+            profaneMsg.setMessageBody("This contains gun");
+            profaneMsg.setTimestamp("2024-01-01T10:00:00Z");
+            sourceData.add(profaneMsg);
+        }
+
+        // Add multiple safe messages
+        for (int i = 0; i < 5; i++) {
+            MessageEvent safeMsg = new MessageEvent();
+            safeMsg.setMessageId("safe-" + i);
+            safeMsg.setMessageBody("This is safe");
+            safeMsg.setTimestamp("2024-01-01T10:00:00Z");
+            sourceData.add(safeMsg);
+        }
+
+        List<MessageEvent> profanityResults = Collections.synchronizedList(new ArrayList<>());
+        List<MessageEvent> icebergResults = Collections.synchronizedList(new ArrayList<>());
+
+        MessageEventSource testSource = env -> env.fromCollection(sourceData);
+        MessageEventSink profanitySink = stream -> stream.addSink(new CollectSink<>(profanityResults));
+        MessageEventSink icebergSink = stream -> stream.addSink(new CollectSink<>(icebergResults));
+
+        DataStreamJob job = new DataStreamJob(testSource, profanitySink, icebergSink);
+        job.execute();
+
+        // Verify profanity detection worked
+        assertEquals(5, profanityResults.size());
+        assertTrue(profanityResults.stream().allMatch(m -> m.getProfanityType() == MessageEvent.ProfanityType.PROFANITY));
+
+        // Verify all messages sent to iceberg
+        assertEquals(10, icebergResults.size());
+    }
+
     /**
      * Helper sink that collects results into a list.
      */

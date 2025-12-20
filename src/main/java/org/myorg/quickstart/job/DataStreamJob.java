@@ -134,12 +134,15 @@ public class DataStreamJob {
 		config.set(CheckpointingOptions.FS_WRITE_BUFFER_SIZE, 64 * 1024);
 
 		env.configure(config);
-		env.enableCheckpointing(30000);
-		LOG.info("Checkpointing enabled with 30s interval");
+		long checkpointInterval = Long.parseLong(System.getenv().getOrDefault("CHECKPOINT_INTERVAL", "300000"));
+		long minPause = Long.parseLong(System.getenv().getOrDefault("MIN_PAUSE_BETWEEN_CHECKPOINTS", "60000"));
+
+		env.enableCheckpointing(checkpointInterval);
+		LOG.info("Checkpointing enabled with {}ms interval", checkpointInterval);
 
 		CheckpointConfig checkpointConfig = env.getCheckpointConfig();
 		checkpointConfig.setCheckpointingConsistencyMode(CheckpointingMode.EXACTLY_ONCE);
-		checkpointConfig.setMinPauseBetweenCheckpoints(30000);
+		checkpointConfig.setMinPauseBetweenCheckpoints(minPause);
 		checkpointConfig.setCheckpointTimeout(600000);
 		checkpointConfig.setMaxConcurrentCheckpoints(1);
 		checkpointConfig.setTolerableCheckpointFailureNumber(3);

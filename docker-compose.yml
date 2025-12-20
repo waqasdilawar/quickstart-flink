@@ -215,10 +215,20 @@ services:
               {"id": 3, "name": "message_body", "required": false, "type": "string"},
               {"id": 4, "name": "correlation_id", "required": false, "type": "string"},
               {"id": 5, "name": "message_status", "required": false, "type": "string"},
-              {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"},
+              {"id": 6, "name": "timestamp", "required": false, "type": "timestamp"},
               {"id": 7, "name": "profanity_type", "required": false, "type": "string"}
             ]
-          }
+          },
+          "spec": {
+            "fields": [
+              {
+                "name": "timestamp_day",
+                "transform": "day",
+                "source-id": 6
+              }
+            ]
+          },
+          "stage-create": false
         }'
 
         PROFANITY_TABLE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
@@ -249,10 +259,20 @@ services:
               {"id": 3, "name": "message_body", "required": false, "type": "string"},
               {"id": 4, "name": "correlation_id", "required": false, "type": "string"},
               {"id": 5, "name": "message_status", "required": false, "type": "string"},
-              {"id": 6, "name": "timestamp", "required": false, "type": "timestamptz"},
+              {"id": 6, "name": "timestamp", "required": false, "type": "timestamp"},
               {"id": 7, "name": "profanity_type", "required": false, "type": "string"}
             ]
-          }
+          },
+          "spec": {
+            "fields": [
+              {
+                "name": "timestamp_day",
+                "transform": "day",
+                "source-id": 6
+              }
+            ]
+          },
+          "stage-create": false
         }'
 
         SAFE_TABLE_RESPONSE=$$(curl -s -w "\n%{http_code}" -X POST http://polaris:8181/api/catalog/v1/$$CATALOG_NAME/namespaces/$$NAMESPACE/tables \
@@ -398,6 +418,9 @@ services:
       - ICEBERG_NAMESPACE=raw_messages
       - TABLE_NAME=filtered_messages
       - WRITE_PARALLELISM=1
+      - CHECKPOINT_INTERVAL=300000
+      - ICEBERG_TARGET_FILE_SIZE_BYTES=134217728
+      - ICEBERG_DISTRIBUTION_MODE=HASH
       - KAFKA_BOOTSTRAP_SERVERS=broker:29092
     depends_on:
       init-kafka:
@@ -438,6 +461,9 @@ services:
       - ICEBERG_NAMESPACE=raw_messages
       - TABLE_NAME=filtered_messages
       - WRITE_PARALLELISM=1
+      - CHECKPOINT_INTERVAL=300000
+      - ICEBERG_TARGET_FILE_SIZE_BYTES=134217728
+      - ICEBERG_DISTRIBUTION_MODE=HASH
     depends_on:
       init-kafka:
         condition: service_completed_successfully

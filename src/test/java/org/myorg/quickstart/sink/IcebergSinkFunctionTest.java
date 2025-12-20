@@ -197,6 +197,153 @@ class IcebergSinkFunctionTest {
         assertThat(rowDataStream.getType()).isNotNull();
     }
 
+    @Test
+    @DisplayName("Should create Iceberg sink builder without throwing exception")
+    void shouldCreateIcebergSinkBuilder() {
+        // Given
+        MessageEvent event = createMessage("msg-1", "Test", MessageEvent.ProfanityType.SAFE);
+        List<MessageEvent> events = Arrays.asList(event);
+        DataStream<MessageEvent> messageStream = env.fromCollection(events);
+        DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
+
+        java.util.Map<String, String> catalogProps = new java.util.HashMap<>();
+        catalogProps.put("uri", "http://polaris:8181/api/catalog");
+        catalogProps.put("credential", "admin:password");
+        catalogProps.put("warehouse", "lakehouse");
+
+        // When/Then - Should not throw exception during builder creation
+        assertThatCode(() -> {
+            IcebergSinkFunction.createIcebergSinkBuilder(
+                rowDataStream,
+                "test-catalog",
+                "test_namespace",
+                "main",
+                catalogProps,
+                1
+            );
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Should create Iceberg sink builder with custom parallelism")
+    void shouldCreateIcebergSinkBuilderWithCustomParallelism() {
+        // Given
+        MessageEvent event = createMessage("msg-1", "Test", MessageEvent.ProfanityType.SAFE);
+        List<MessageEvent> events = Arrays.asList(event);
+        DataStream<MessageEvent> messageStream = env.fromCollection(events);
+        DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
+
+        java.util.Map<String, String> catalogProps = new java.util.HashMap<>();
+        catalogProps.put("uri", "http://polaris:8181/api/catalog");
+
+        // When/Then - Should handle different parallelism values
+        assertThatCode(() -> {
+            IcebergSinkFunction.createIcebergSinkBuilder(
+                rowDataStream,
+                "test-catalog",
+                "test_namespace",
+                "main",
+                catalogProps,
+                4
+            );
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Should create Iceberg sink builder with custom branch")
+    void shouldCreateIcebergSinkBuilderWithCustomBranch() {
+        // Given
+        MessageEvent event = createMessage("msg-1", "Test", MessageEvent.ProfanityType.SAFE);
+        List<MessageEvent> events = Arrays.asList(event);
+        DataStream<MessageEvent> messageStream = env.fromCollection(events);
+        DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
+
+        java.util.Map<String, String> catalogProps = new java.util.HashMap<>();
+        catalogProps.put("uri", "http://polaris:8181/api/catalog");
+
+        // When/Then - Should handle custom branch names
+        assertThatCode(() -> {
+            IcebergSinkFunction.createIcebergSinkBuilder(
+                rowDataStream,
+                "test-catalog",
+                "test_namespace",
+                "feature-branch",
+                catalogProps,
+                1
+            );
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Should create Iceberg sink builder with empty catalog properties")
+    void shouldCreateIcebergSinkBuilderWithEmptyCatalogProperties() {
+        // Given
+        MessageEvent event = createMessage("msg-1", "Test", MessageEvent.ProfanityType.SAFE);
+        List<MessageEvent> events = Arrays.asList(event);
+        DataStream<MessageEvent> messageStream = env.fromCollection(events);
+        DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
+
+        java.util.Map<String, String> catalogProps = new java.util.HashMap<>();
+
+        // When/Then - Should not throw during builder creation (may fail at execution)
+        assertThatCode(() -> {
+            IcebergSinkFunction.createIcebergSinkBuilder(
+                rowDataStream,
+                "test-catalog",
+                "test_namespace",
+                "main",
+                catalogProps,
+                1
+            );
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Should handle MessageEvent with all SAFE messages")
+    void shouldHandleMessageEventWithAllSafeMessages() {
+        // Given
+        MessageEvent event = createMessage("msg-1", "Safe message", MessageEvent.ProfanityType.SAFE);
+        List<MessageEvent> events = Arrays.asList(event);
+        DataStream<MessageEvent> messageStream = env.fromCollection(events);
+
+        // When/Then
+        assertThatCode(() -> {
+            DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
+            assertThat(rowDataStream).isNotNull();
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Should handle stream with mixed profanity types")
+    void shouldHandleStreamWithMixedProfanityTypes() {
+        // Given
+        List<MessageEvent> events = Arrays.asList(
+            createMessage("msg-1", "Safe content", MessageEvent.ProfanityType.SAFE),
+            createMessage("msg-2", "Profane gun", MessageEvent.ProfanityType.PROFANITY),
+            createMessage("msg-3", "Another safe content", MessageEvent.ProfanityType.SAFE)
+        );
+        DataStream<MessageEvent> messageStream = env.fromCollection(events);
+
+        // When/Then
+        assertThatCode(() -> {
+            DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
+            assertThat(rowDataStream).isNotNull();
+        }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Should convert empty stream without errors")
+    void shouldConvertEmptyStream() {
+        // Given
+        DataStream<MessageEvent> emptyStream = env.fromCollection(java.util.Collections.emptyList());
+
+        // When/Then
+        assertThatCode(() -> {
+            DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(emptyStream);
+            assertThat(rowDataStream).isNotNull();
+        }).doesNotThrowAnyException();
+    }
+
     // Helper method
     private MessageEvent createMessage(String id, String body, MessageEvent.ProfanityType type) {
         MessageEvent event = new MessageEvent();

@@ -312,4 +312,62 @@ class DataToRowConverterTest {
         // Then
         assertThat(result.getString(2).toString()).hasSize(longMessage.length());
     }
+
+    @Test
+    @DisplayName("Should handle invalid timestamp format by using current time")
+    void shouldHandleInvalidTimestampFormat() throws Exception {
+        // Given
+        MessageEvent event = new MessageEvent();
+        event.setMessageId("msg-123");
+        event.setTimestamp("invalid-timestamp-format");
+        event.setProfanityType(MessageEvent.ProfanityType.SAFE);
+
+        long beforeConversion = Instant.now().toEpochMilli();
+
+        // When
+        RowData result = converter.map(event);
+
+        long afterConversion = Instant.now().toEpochMilli();
+
+        // Then - Should fall back to default error handling
+        assertThat(result).isNotNull();
+        assertThat(result.getString(4).toString()).isEqualTo("ERROR");
+        long resultTimestamp = result.getTimestamp(5, 6).getMillisecond();
+        assertThat(resultTimestamp).isBetween(beforeConversion, afterConversion);
+    }
+
+    @Test
+    @DisplayName("Should handle SAFE profanity type explicitly")
+    void shouldHandleSafeProfanityType() throws Exception {
+        // Given
+        MessageEvent event = new MessageEvent();
+        event.setMessageId("msg-123");
+        event.setMessageBody("This is safe content");
+        event.setTimestamp("2025-01-01T10:00:00Z");
+        event.setProfanityType(MessageEvent.ProfanityType.SAFE);
+
+        // When
+        RowData result = converter.map(event);
+
+        // Then
+        assertThat(result.getString(6).toString()).isEqualTo("SAFE");
+    }
+
+    @Test
+    @DisplayName("Should handle all profanity types")
+    void shouldHandleAllProfanityTypes() throws Exception {
+        for (MessageEvent.ProfanityType type : MessageEvent.ProfanityType.values()) {
+            // Given
+            MessageEvent event = new MessageEvent();
+            event.setMessageId("msg-" + type);
+            event.setTimestamp("2025-01-01T10:00:00Z");
+            event.setProfanityType(type);
+
+            // When
+            RowData result = converter.map(event);
+
+            // Then
+            assertThat(result.getString(6).toString()).isEqualTo(type.name());
+        }
+    }
 }

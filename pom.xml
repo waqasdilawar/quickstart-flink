@@ -29,8 +29,9 @@ under the License.
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<flink.version>1.19.1</flink.version>
-    <flink.connector.kafka.version>3.3.0-1.19</flink.connector.kafka.version>
+		<flink.version>2.1.0</flink.version>
+		<iceberg.version>1.10.0</iceberg.version>
+		<flink.connector.kafka.version>4.0.1-2.0</flink.connector.kafka.version>
 		<target.java.version>11</target.java.version>
 		<scala.binary.version>2.12</scala.binary.version>
 		<maven.compiler.source>${target.java.version}</maven.compiler.source>
@@ -81,6 +82,49 @@ under the License.
 			<version>${flink.connector.kafka.version}</version>
 		</dependency>
 
+		<!-- Flink JSON Format for Kafka -->
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-json</artifactId>
+			<version>${flink.version}</version>
+			<scope>provided</scope>
+		</dependency>
+
+		<!-- Flink Table Runtime (required for Iceberg) -->
+		<dependency>
+			<groupId>org.apache.flink</groupId>
+			<artifactId>flink-table-runtime</artifactId>
+			<version>${flink.version}</version>
+			<scope>provided</scope>
+		</dependency>
+
+		<!-- Iceberg Flink Integration -->
+		<dependency>
+			<groupId>org.apache.iceberg</groupId>
+			<artifactId>iceberg-flink-2.0</artifactId>
+			<version>${iceberg.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.apache.iceberg</groupId>
+			<artifactId>iceberg-flink-runtime-2.0</artifactId>
+			<version>${iceberg.version}</version>
+		</dependency>
+
+		<!-- S3/MinIO Storage -->
+		<dependency>
+			<groupId>org.apache.iceberg</groupId>
+			<artifactId>iceberg-aws-bundle</artifactId>
+			<version>${iceberg.version}</version>
+		</dependency>
+
+		<!-- Hadoop for Configuration -->
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-common</artifactId>
+			<version>3.4.2</version>
+		</dependency>
+
 		<!-- Add logging framework, to produce console output when running in the IDE. -->
 		<!-- These dependencies are excluded from the application JAR by default. -->
 		<dependency>
@@ -100,6 +144,13 @@ under the License.
 			<artifactId>log4j-core</artifactId>
 			<version>${log4j.version}</version>
 			<scope>runtime</scope>
+		</dependency>
+
+		<!-- https://mvnrepository.com/artifact/org.apache.avro/avro -->
+		<dependency>
+			<groupId>org.apache.avro</groupId>
+			<artifactId>avro</artifactId>
+			<version>1.12.1</version>
 		</dependency>
 	</dependencies>
 
@@ -155,7 +206,7 @@ under the License.
 							<transformers>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
 								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-									<mainClass>org.myorg.quickstart.DataStreamJob</mainClass>
+									<mainClass>org.myorg.quickstart.job.DataStreamJob</mainClass>
 								</transformer>
 							</transformers>
 						</configuration>

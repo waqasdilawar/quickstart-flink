@@ -201,6 +201,20 @@ under the License.
 		</dependency>
 
 		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>clickhouse</artifactId>
+			<version>1.21.3</version>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>com.clickhouse.flink</groupId>
+			<artifactId>flink-connector-clickhouse-2.0.0</artifactId>
+			<version>0.1.1</version>
+			<classifier>all</classifier>
+		</dependency>
+
+		<dependency>
 			<groupId>org.assertj</groupId>
 			<artifactId>assertj-core</artifactId>
 			<version>3.24.2</version>

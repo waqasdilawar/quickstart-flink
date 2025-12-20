@@ -4,6 +4,7 @@ import org.apache.flink.runtime.testutils.MiniClusterResourceConfiguration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.legacy.SinkFunction;
+import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.test.junit5.MiniClusterExtension;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -43,15 +44,15 @@ class IcebergMessageEventSinkTest {
         DataStream<MessageEvent> stream = env.fromCollection(Collections.singletonList(testMessage));
 
         // Use a test collector sink instead of real Iceberg
-        List<MessageEvent> results = Collections.synchronizedList(new ArrayList<>());
-        MessageEventSink testSink = s -> s.addSink(new CollectSink<>(results));
+        CollectSink.values.clear();
+        MessageEventSink testSink = s -> s.addSink(new CollectSink());
 
         testSink.addSink(stream);
         env.execute("Test Iceberg Sink");
 
         // Verify the sink was called
-        assertEquals(1, results.size());
-        assertEquals("1", results.get(0).getMessageId());
+        assertEquals(1, CollectSink.values.size());
+        assertEquals("1", CollectSink.values.get(0).getMessageId());
     }
 
     @Test
@@ -84,7 +85,10 @@ class IcebergMessageEventSinkTest {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(1);
 
-        DataStream<MessageEvent> emptyStream = env.fromCollection(Collections.emptyList());
+        DataStream<MessageEvent> emptyStream = env.fromCollection(
+            Collections.emptyList(),
+            TypeInformation.of(MessageEvent.class)
+        );
 
         IcebergMessageEventSink sink = new IcebergMessageEventSink();
 
@@ -118,16 +122,12 @@ class IcebergMessageEventSinkTest {
     /**
      * Helper sink that collects results into a list.
      */
-    private static class CollectSink<T> implements SinkFunction<T> {
-        private final List<T> results;
-
-        public CollectSink(List<T> results) {
-            this.results = results;
-        }
+    private static class CollectSink implements SinkFunction<MessageEvent> {
+        static final List<MessageEvent> values = Collections.synchronizedList(new ArrayList<>());
 
         @Override
-        public void invoke(T value, Context context) {
-            results.add(value);
+        public void invoke(MessageEvent value, Context context) {
+            values.add(value);
         }
     }
 }

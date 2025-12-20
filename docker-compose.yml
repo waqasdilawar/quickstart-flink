@@ -320,6 +320,49 @@ services:
         echo ""
         echo "=========================================="
 
+  clickhouse:
+    image: clickhouse:25.3.10.19
+    ports:
+      - "18123:8123"   # HTTP
+      - "19000:9000"   # native
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_PASSWORD: password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    networks:
+      - flink-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clickhouse-setup:
+    image: alpine/curl
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - flink-network
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        set -e
+        echo "Waiting for ClickHouse to be ready..."
+        until curl -s "http://clickhouse:8123/ping" > /dev/null; do
+          echo "Waiting for ClickHouse..."
+          sleep 1
+        done
+
+        echo "Creating table message_events..."
+        curl -s -X POST "http://clickhouse:8123/" \
+          -H "X-ClickHouse-User: default" \
+          -H "X-ClickHouse-Key: password" \
+          --data-binary "CREATE TABLE IF NOT EXISTS default.message_events ( account_id String, message_id String, message_body String, correlation_id String, message_status String, event_time DateTime64(3), profanity_type String, inserted_at DateTime64(3) MATERIALIZED now() ) ENGINE = ReplacingMergeTree(inserted_at) PARTITION BY toYYYYMM(event_time) ORDER BY (account_id, message_id);"
+
+        echo "✅ Table message_events created"
+
   iceberg-sink-connect:
     image: quay.io/debezium/connect
     container_name: iceberg-sink-connect
@@ -422,10 +465,17 @@ services:
       - ICEBERG_TARGET_FILE_SIZE_BYTES=134217728
       - ICEBERG_DISTRIBUTION_MODE=HASH
       - KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - CLICKHOUSE_JDBC_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=password
+      - CLICKHOUSE_DATABASE=default
+      - CLICKHOUSE_TABLE=message_events
     depends_on:
       init-kafka:
         condition: service_completed_successfully
       polaris-setup:
+        condition: service_completed_successfully
+      clickhouse-setup:
         condition: service_completed_successfully
     networks:
       - flink-network
@@ -464,10 +514,17 @@ services:
       - CHECKPOINT_INTERVAL=300000
       - ICEBERG_TARGET_FILE_SIZE_BYTES=134217728
       - ICEBERG_DISTRIBUTION_MODE=HASH
+      - CLICKHOUSE_JDBC_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=password
+      - CLICKHOUSE_DATABASE=default
+      - CLICKHOUSE_TABLE=message_events
     depends_on:
       init-kafka:
         condition: service_completed_successfully
       polaris-setup:
+        condition: service_completed_successfully
+      clickhouse-setup:
         condition: service_completed_successfully
     networks:
       - flink-network

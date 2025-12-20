@@ -32,11 +32,9 @@ public class MessageEvent {
     @JsonProperty("profanity_type")
     private ProfanityType profanityType;
 
-    // Default constructor
     public MessageEvent() {
     }
 
-    // Getters and Setters
     public String getAccountId() {
         return accountId;
     }

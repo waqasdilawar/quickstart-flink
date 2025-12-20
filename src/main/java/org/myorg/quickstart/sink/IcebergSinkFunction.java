@@ -31,10 +31,6 @@ public class IcebergSinkFunction {
     Types.NestedField.optional(7, "profanity_type", Types.StringType.get())
   );
 
-  /**
-   * Creates an Iceberg Dynamic sink BUILDER (does NOT attach to the stream).
-   * Caller must invoke {@code builder.append()} explicitly.
-   */
   public static DynamicIcebergSink.Builder<RowData> createIcebergSinkBuilder(
     DataStream<RowData> rowDataStream,
     String catalogName,
@@ -48,38 +44,39 @@ public class IcebergSinkFunction {
 
     DynamicIcebergSink.Builder<RowData> builder = DynamicIcebergSink.forInput(rowDataStream)
       .generator((row, out) -> {
-        String profanityType = row.getString(6).toString();
-        String tableName = "safe_messages";
-        if ("PROFANITY".equals(profanityType)) {
-          tableName = "profanity_messages";
+        try {
+          String profanityType = row.getString(6).toString();
+          String tableName = "safe_messages";
+          if ("PROFANITY".equals(profanityType)) {
+            tableName = "profanity_messages";
+          }
+          LOG.debug("Routing message to table: {} (profanity_type: {})", tableName, profanityType);
+          out.collect(
+            new DynamicRecord(
+              TableIdentifier.of(namespace, tableName),
+              branch,
+              FILTERED_MESSAGE_SCHEMA,
+              row,
+              PartitionSpec.unpartitioned(),
+              DistributionMode.HASH,
+              1
+            )
+          );
+        } catch (Exception e) {
+          LOG.error("Failed to route message to Iceberg table. Error: {}", e.getMessage(), e);
+          throw e;
         }
-        out.collect(
-          new DynamicRecord(
-            TableIdentifier.of(namespace, tableName),
-            branch,
-            FILTERED_MESSAGE_SCHEMA,
-            row,
-            PartitionSpec.unpartitioned(),
-            DistributionMode.HASH,
-            1
-          )
-        );
       })
       .catalogLoader(CatalogLoader.rest(catalogName, new org.apache.hadoop.conf.Configuration(), catalogProps))
       .writeParallelism(writeParallelism)
       .immediateTableUpdate(true);
 
-    LOG.info("Iceberg Dynamic Sink Builder created successfully - namespace: {}", namespace);
+    LOG.info("Iceberg Dynamic Sink Builder created successfully - namespace: {}, writeParallelism: {}", namespace, writeParallelism);
     return builder;
   }
 
-  /**
-   * Converts SmsMessage stream to RowData stream for Iceberg.
-   *
-   * @param smsStream The source stream of SmsMessage objects
-   * @return DataStream of RowData ready for Iceberg sink
-   */
   public static DataStream<RowData> toRowDataStream(DataStream<MessageEvent> smsStream) {
+    LOG.info("Converting MessageEvent stream to RowData stream for Iceberg");
     RowType flinkRowType = FlinkSchemaUtil.convert(FILTERED_MESSAGE_SCHEMA);
     return smsStream
       .map(new DataToRowConverter())

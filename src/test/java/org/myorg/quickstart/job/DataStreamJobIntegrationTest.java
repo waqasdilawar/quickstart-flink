@@ -58,13 +58,7 @@ class DataStreamJobIntegrationTest {
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
     // Apply the same processing logic as the main job
-    DataStream<MessageEvent> processed = source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    });
+    DataStream<MessageEvent> processed = source.map(new ProfanityClassifier(PROFANITIES));
 
     // Filter only profane messages (simulating Kafka sink filter)
     processed.filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
@@ -98,13 +92,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-        boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-        event.setProfanityType(isProfane ?
-                                 MessageEvent.ProfanityType.PROFANITY :
-          MessageEvent.ProfanityType.SAFE);
-        return event;
-      }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test No Profanity");
@@ -128,13 +117,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).addSink(new CollectSink());
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .addSink(new CollectSink());
 
     env.execute("Test Empty Messages");
 
@@ -160,13 +144,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test Case Insensitive");
@@ -191,13 +170,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test Multiple Profanities");
@@ -225,13 +199,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test Partial Matches");
@@ -258,13 +227,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test High Volume");
@@ -290,13 +254,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test Special Characters");
@@ -322,13 +281,8 @@ class DataStreamJobIntegrationTest {
 
     DataStream<MessageEvent> source = env.fromCollection(testData);
 
-    source.map(event -> {
-      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-      event.setProfanityType(isProfane ?
-                               MessageEvent.ProfanityType.PROFANITY :
-        MessageEvent.ProfanityType.SAFE);
-      return event;
-    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+    source.map(new ProfanityClassifier(PROFANITIES))
+      .filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
       .addSink(new CollectSink());
 
     env.execute("Test Message Order");
@@ -350,18 +304,6 @@ class DataStreamJobIntegrationTest {
     return event;
   }
 
-  private static boolean containsProfanity(String text, Set<String> profanities) {
-    if (text == null || text.isEmpty()) {
-      return false;
-    }
-    String lower = text.toLowerCase();
-    for (String badWord : profanities) {
-      if (lower.contains(badWord.toLowerCase())) {
-        return true;
-      }
-    }
-    return false;
-  }
 
   private static class CollectSink implements SinkFunction<MessageEvent> {
       public static final List<MessageEvent> values = new CopyOnWriteArrayList<>();

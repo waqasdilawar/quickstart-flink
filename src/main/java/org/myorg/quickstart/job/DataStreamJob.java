@@ -137,13 +137,7 @@ public class DataStreamJob {
 		Set<String> profanities = loadProfanities();
 		LOG.info("Loaded {} profanity words for message classification", profanities.size());
 
-		SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(event -> {
-			boolean isProfane = containsProfanity(event.getMessageBody(), profanities);
-			event.setProfanityType(isProfane ? MessageEvent.ProfanityType.PROFANITY : MessageEvent.ProfanityType.SAFE);
-			LOG.debug("Message {} classified as: {} (body: '{}')",
-				event.getMessageId(), event.getProfanityType(), event.getMessageBody());
-			return event;
-		});
+		SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(new ProfanityClassifier(profanities));
 
 		LOG.info("Configuring Kafka sink for profane messages: topic=output-topic");
 		KafkaSink<MessageEvent> kafkaSink = KafkaSink.<MessageEvent>builder()
@@ -240,16 +234,4 @@ public class DataStreamJob {
 		return profanities;
 	}
 
-	public static boolean containsProfanity(String text, Set<String> profanities) {
-		if (text == null || text.isEmpty()) {
-			return false;
-		}
-		String lower = text.toLowerCase();
-		for (String badWord : profanities) {
-			if (lower.contains(badWord.toLowerCase())) {
-				return true;
-			}
-		}
-		return false;
-	}
 }

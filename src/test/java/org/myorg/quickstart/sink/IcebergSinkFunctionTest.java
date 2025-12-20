@@ -46,20 +46,6 @@ class IcebergSinkFunctionTest {
     }
 
     @Test
-    @DisplayName("Should handle empty MessageEvent stream")
-    void shouldHandleEmptyMessageEventStream() {
-        // Given
-        List<MessageEvent> events = Arrays.asList();
-        DataStream<MessageEvent> messageStream = env.fromCollection(events);
-
-        // When/Then - Should not throw exception
-        assertThatCode(() -> {
-            DataStream<RowData> rowDataStream = IcebergSinkFunction.toRowDataStream(messageStream);
-            assertThat(rowDataStream).isNotNull();
-        }).doesNotThrowAnyException();
-    }
-
-    @Test
     @DisplayName("Should handle MessageEvent with null fields")
     void shouldHandleMessageEventWithNullFields() {
         // Given

@@ -37,7 +37,7 @@ class DataStreamJobUnitTest {
         String text = "this message contains gun";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -51,7 +51,7 @@ class DataStreamJobUnitTest {
         String text = "THIS MESSAGE CONTAINS GUN";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -65,7 +65,7 @@ class DataStreamJobUnitTest {
         String text = "This message contains GuN";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -79,7 +79,7 @@ class DataStreamJobUnitTest {
         String text = "The gunman was arrested";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -93,7 +93,7 @@ class DataStreamJobUnitTest {
         String text = "This gun and badword are both offensive";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -107,7 +107,7 @@ class DataStreamJobUnitTest {
         String text = "This is a perfectly clean message";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isFalse();
@@ -121,7 +121,7 @@ class DataStreamJobUnitTest {
         Set<String> profanities = Set.of("gun", "badword", "offensive");
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isFalse();
@@ -135,7 +135,7 @@ class DataStreamJobUnitTest {
         String text = "This message contains gun";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isFalse();
@@ -154,7 +154,7 @@ class DataStreamJobUnitTest {
         Set<String> profanities = Set.of("gun", "badword");
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isFalse();
@@ -168,7 +168,7 @@ class DataStreamJobUnitTest {
         String text = "this message contains gun";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -182,7 +182,7 @@ class DataStreamJobUnitTest {
         String text = "This $@!% gun is here!";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -196,7 +196,7 @@ class DataStreamJobUnitTest {
         String text = "This 日本語 gun message";
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -214,7 +214,7 @@ class DataStreamJobUnitTest {
         longText.append("gun"); // Add profanity at the end
 
         // When
-        boolean result = DataStreamJob.containsProfanity(longText.toString(), profanities);
+        boolean result = ProfanityClassifier.containsProfanity(longText.toString(), profanities);
 
         // Then
         assertThat(result).isTrue();
@@ -228,7 +228,7 @@ class DataStreamJobUnitTest {
         String text = "begun, unguarded, gunman"; // Contains "gun" as substring
 
         // When
-        boolean result = DataStreamJob.containsProfanity(text, profanities);
+        boolean result = ProfanityClassifier.containsProfanity(text, profanities);
 
         // Then
         // Current implementation does substring matching

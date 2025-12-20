@@ -127,11 +127,7 @@ class DataStreamJobE2ETest {
             "Test Kafka Source"
         );
         
-        SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(event -> {
-			boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
-			event.setProfanityType(isProfane ? MessageEvent.ProfanityType.PROFANITY : MessageEvent.ProfanityType.SAFE);
-			return event;
-		});
+        SingleOutputStreamOperator<MessageEvent> processedStream = stream.map(new ProfanityClassifier(PROFANITIES));
 
         // ... rest of pipeline with KafkaSink to outputTopic
         KafkaSink<MessageEvent> kafkaSink = KafkaSink.<MessageEvent>builder()
@@ -177,16 +173,4 @@ class DataStreamJobE2ETest {
         return event;
     }
 
-    private static boolean containsProfanity(String text, Set<String> profanities) {
-        if (text == null || text.isEmpty()) {
-          return false;
-        }
-        String lower = text.toLowerCase();
-        for (String badWord : profanities) {
-          if (lower.contains(badWord.toLowerCase())) {
-            return true;
-          }
-        }
-        return false;
-    }
 }

@@ -565,6 +565,162 @@ curl -s "http://localhost:8181/api/catalog/v1/lakehouse/namespaces/raw_messages/
     | jq -r '.access_token')" \
   | jq '.'
 ```
+**Expected Structure:**
+```json
+{
+  "metadata-location": "s3://lakehouse/raw_messages/filtered_messages/metadata/00002-0bc5fba0-62e1-4243-a428-133345885dd5.metadata.json",
+  "metadata": {
+    "format-version": 2,
+    "table-uuid": "1d7822a6-fd5e-4df8-8a6d-77becb19be3e",
+    "location": "s3://lakehouse/raw_messages/filtered_messages",
+    "last-sequence-number": 2,
+    "last-updated-ms": 1766217845515,
+    "last-column-id": 6,
+    "current-schema-id": 0,
+    "schemas": [
+      {
+        "type": "struct",
+        "schema-id": 0,
+        "fields": [
+          {
+            "id": 1,
+            "name": "account_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "id": 2,
+            "name": "message_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "id": 3,
+            "name": "message_body",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "id": 4,
+            "name": "correlation_id",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "id": 5,
+            "name": "message_status",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "id": 6,
+            "name": "timestamp",
+            "required": false,
+            "type": "timestamptz"
+          }
+        ]
+      }
+    ],
+    "default-spec-id": 0,
+    "partition-specs": [
+      {
+        "spec-id": 0,
+        "fields": []
+      }
+    ],
+    "last-partition-id": 999,
+    "default-sort-order-id": 0,
+    "sort-orders": [
+      {
+        "order-id": 0,
+        "fields": []
+      }
+    ],
+    "properties": {
+      "created-at": "2025-12-20T08:03:31.826508830Z",
+      "write.parquet.compression-codec": "zstd"
+    },
+    "current-snapshot-id": 8815284914878673760,
+    "refs": {
+      "main": {
+        "snapshot-id": 8815284914878673760,
+        "type": "branch"
+      }
+    },
+    "snapshots": [
+      {
+        "sequence-number": 1,
+        "snapshot-id": 1234376145282345263,
+        "timestamp-ms": 1766217834181,
+        "summary": {
+          "operation": "append",
+          "changed-partition-count": "0",
+          "total-records": "0",
+          "total-files-size": "0",
+          "total-data-files": "0",
+          "total-delete-files": "0",
+          "total-position-deletes": "0",
+          "total-equality-deletes": "0",
+          "iceberg-version": "Apache Iceberg 1.10.0 (commit 2114bf631e49af532d66e2ce148ee49dd1dd1f1f)"
+        },
+        "manifest-list": "s3://lakehouse/raw_messages/filtered_messages/metadata/snap-1234376145282345263-1-f6cebbdd-4d68-4297-b136-8a98cabf8ac9.avro",
+        "schema-id": 0
+      },
+      {
+        "sequence-number": 2,
+        "snapshot-id": 8815284914878673760,
+        "parent-snapshot-id": 1234376145282345263,
+        "timestamp-ms": 1766217845515,
+        "summary": {
+          "operation": "overwrite",
+          "flink.operator-id": "13ec98479df712dc320cd8c20a3a4d6e",
+          "flink.job-id": "28ea9faa0b0381fa8d862af1e1d7381d",
+          "flink.max-committed-checkpoint-id": "1",
+          "added-data-files": "1",
+          "added-records": "1",
+          "added-files-size": "2390",
+          "changed-partition-count": "1",
+          "total-records": "1",
+          "total-files-size": "2390",
+          "total-data-files": "1",
+          "total-delete-files": "0",
+          "total-position-deletes": "0",
+          "total-equality-deletes": "0",
+          "iceberg-version": "Apache Iceberg 1.10.0 (commit 2114bf631e49af532d66e2ce148ee49dd1dd1f1f)"
+        },
+        "manifest-list": "s3://lakehouse/raw_messages/filtered_messages/metadata/snap-8815284914878673760-1-94ca032f-0571-4d0c-b169-aed214ed5c8a.avro",
+        "schema-id": 0
+      }
+    ],
+    "statistics": [],
+    "partition-statistics": [],
+    "snapshot-log": [
+      {
+        "timestamp-ms": 1766217834181,
+        "snapshot-id": 1234376145282345263
+      },
+      {
+        "timestamp-ms": 1766217845515,
+        "snapshot-id": 8815284914878673760
+      }
+    ],
+    "metadata-log": [
+      {
+        "timestamp-ms": 1766217811852,
+        "metadata-file": "s3://lakehouse/raw_messages/filtered_messages/metadata/00000-863ce43f-12b2-434a-82aa-0f6a8e04ff81.metadata.json"
+      },
+      {
+        "timestamp-ms": 1766217834181,
+        "metadata-file": "s3://lakehouse/raw_messages/filtered_messages/metadata/00001-88d485b6-90ac-4ea6-ba65-eb902e5c28e7.metadata.json"
+      }
+    ]
+  },
+  "config": {
+    "s3.path-style-access": "true",
+    "s3.endpoint": "http://minio:9000"
+  }
+}
+```
 
 **Check MinIO for data files:**
 
@@ -572,8 +728,13 @@ curl -s "http://localhost:8181/api/catalog/v1/lakehouse/namespaces/raw_messages/
 # List files in lakehouse bucket
 docker exec minio-client mc ls minio/lakehouse/raw_messages/filtered_messages/data/
 ```
+![img.png](img.png)
 
 **Expected Structure:**
+
+If you use Big Data tools plugin from IntelliJ and connect to MinIO,
+you can browse the data files directly in the UI:
+![img_1.png](img_1.png)
 ```
 lakehouse/
 └── raw_messages/

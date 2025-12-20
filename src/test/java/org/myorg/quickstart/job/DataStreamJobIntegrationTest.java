@@ -145,6 +145,202 @@ class DataStreamJobIntegrationTest {
       .allMatch(e -> e.getProfanityType() == MessageEvent.ProfanityType.SAFE);
   }
 
+  @Test
+  void shouldHandleCaseInsensitiveProfanityMatching() throws Exception {
+    // Given
+    MessageEvent upperCase = createMessage("1", "THIS MESSAGE CONTAINS GUN");
+    MessageEvent mixedCase = createMessage("2", "This Has BaDwOrD here");
+    MessageEvent lowerCase = createMessage("3", "another offensive word");
+
+    List<MessageEvent> testData = Arrays.asList(upperCase, mixedCase, lowerCase);
+
+    // When
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
+
+    DataStream<MessageEvent> source = env.fromCollection(testData);
+
+    source.map(event -> {
+      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
+      event.setProfanityType(isProfane ?
+                               MessageEvent.ProfanityType.PROFANITY :
+        MessageEvent.ProfanityType.SAFE);
+      return event;
+    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+      .addSink(new CollectSink());
+
+    env.execute("Test Case Insensitive");
+
+    // Then
+    List<MessageEvent> results = new ArrayList<>(CollectSink.values);
+    assertThat(results)
+      .hasSize(3)
+      .allMatch(e -> e.getProfanityType() == MessageEvent.ProfanityType.PROFANITY);
+  }
+
+  @Test
+  void shouldHandleMultipleProfanitiesInSingleMessage() throws Exception {
+    // Given
+    MessageEvent multiProfane = createMessage("1", "This has gun and badword and offensive content");
+
+    List<MessageEvent> testData = Arrays.asList(multiProfane);
+
+    // When
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
+
+    DataStream<MessageEvent> source = env.fromCollection(testData);
+
+    source.map(event -> {
+      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
+      event.setProfanityType(isProfane ?
+                               MessageEvent.ProfanityType.PROFANITY :
+        MessageEvent.ProfanityType.SAFE);
+      return event;
+    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+      .addSink(new CollectSink());
+
+    env.execute("Test Multiple Profanities");
+
+    // Then
+    List<MessageEvent> results = new ArrayList<>(CollectSink.values);
+    assertThat(results)
+      .hasSize(1)
+      .first()
+      .extracting(MessageEvent::getProfanityType)
+      .isEqualTo(MessageEvent.ProfanityType.PROFANITY);
+  }
+
+  @Test
+  void shouldHandlePartialWordMatches() throws Exception {
+    // Given - words containing profanity as substring
+    MessageEvent partial1 = createMessage("1", "The gunman was arrested");
+    MessageEvent partial2 = createMessage("2", "begun the process");
+
+    List<MessageEvent> testData = Arrays.asList(partial1, partial2);
+
+    // When
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
+
+    DataStream<MessageEvent> source = env.fromCollection(testData);
+
+    source.map(event -> {
+      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
+      event.setProfanityType(isProfane ?
+                               MessageEvent.ProfanityType.PROFANITY :
+        MessageEvent.ProfanityType.SAFE);
+      return event;
+    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+      .addSink(new CollectSink());
+
+    env.execute("Test Partial Matches");
+
+    // Then - current implementation does substring matching
+    List<MessageEvent> results = new ArrayList<>(CollectSink.values);
+    assertThat(results)
+      .hasSize(2)
+      .allMatch(e -> e.getProfanityType() == MessageEvent.ProfanityType.PROFANITY);
+  }
+
+  @Test
+  void shouldHandleHighVolumeOfMessages() throws Exception {
+    // Given - Generate 100 messages, 50 profane and 50 safe
+    List<MessageEvent> testData = new ArrayList<>();
+    for (int i = 0; i < 50; i++) {
+      testData.add(createMessage("profane-" + i, "This message contains gun " + i));
+      testData.add(createMessage("safe-" + i, "This is a safe message " + i));
+    }
+
+    // When
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(2); // Test with parallelism > 1
+
+    DataStream<MessageEvent> source = env.fromCollection(testData);
+
+    source.map(event -> {
+      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
+      event.setProfanityType(isProfane ?
+                               MessageEvent.ProfanityType.PROFANITY :
+        MessageEvent.ProfanityType.SAFE);
+      return event;
+    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+      .addSink(new CollectSink());
+
+    env.execute("Test High Volume");
+
+    // Then
+    List<MessageEvent> results = new ArrayList<>(CollectSink.values);
+    assertThat(results)
+      .hasSize(50)
+      .allMatch(e -> e.getProfanityType() == MessageEvent.ProfanityType.PROFANITY);
+  }
+
+  @Test
+  void shouldHandleSpecialCharactersInMessages() throws Exception {
+    // Given
+    MessageEvent special1 = createMessage("1", "This $@!% gun is here!");
+    MessageEvent special2 = createMessage("2", "Clean message with !@#$%");
+
+    List<MessageEvent> testData = Arrays.asList(special1, special2);
+
+    // When
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1);
+
+    DataStream<MessageEvent> source = env.fromCollection(testData);
+
+    source.map(event -> {
+      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
+      event.setProfanityType(isProfane ?
+                               MessageEvent.ProfanityType.PROFANITY :
+        MessageEvent.ProfanityType.SAFE);
+      return event;
+    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+      .addSink(new CollectSink());
+
+    env.execute("Test Special Characters");
+
+    // Then
+    List<MessageEvent> results = new ArrayList<>(CollectSink.values);
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).getMessageId()).isEqualTo("1");
+  }
+
+  @Test
+  void shouldProcessMessagesInOrder() throws Exception {
+    // Given - Messages with specific order
+    List<MessageEvent> testData = Arrays.asList(
+      createMessage("1", "First gun message"),
+      createMessage("2", "Second badword message"),
+      createMessage("3", "Third offensive message")
+    );
+
+    // When
+    StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+    env.setParallelism(1); // Ensure order with parallelism 1
+
+    DataStream<MessageEvent> source = env.fromCollection(testData);
+
+    source.map(event -> {
+      boolean isProfane = containsProfanity(event.getMessageBody(), PROFANITIES);
+      event.setProfanityType(isProfane ?
+                               MessageEvent.ProfanityType.PROFANITY :
+        MessageEvent.ProfanityType.SAFE);
+      return event;
+    }).filter(event -> event.getProfanityType() == MessageEvent.ProfanityType.PROFANITY)
+      .addSink(new CollectSink());
+
+    env.execute("Test Message Order");
+
+    // Then
+    List<MessageEvent> results = new ArrayList<>(CollectSink.values);
+    assertThat(results)
+      .hasSize(3)
+      .extracting(MessageEvent::getMessageId)
+      .containsExactly("1", "2", "3");
+  }
+
   // Helper methods
   private MessageEvent createMessage(String id, String body) {
     MessageEvent event = new MessageEvent();

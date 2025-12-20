@@ -221,7 +221,7 @@ public class DataStreamJob {
 		LOG.info("Job execution completed: {}", jobName);
 	}
 
-	private static Set<String> loadProfanities() {
+	public static Set<String> loadProfanities() {
 		Set<String> profanities = new HashSet<>();
 		try (InputStream is = DataStreamJob.class.getClassLoader().getResourceAsStream("profanity_list.txt")) {
 			if (is != null) {
@@ -240,7 +240,7 @@ public class DataStreamJob {
 		return profanities;
 	}
 
-	private static boolean containsProfanity(String text, Set<String> profanities) {
+	public static boolean containsProfanity(String text, Set<String> profanities) {
 		if (text == null || text.isEmpty()) {
 			return false;
 		}

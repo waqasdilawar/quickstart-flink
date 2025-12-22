@@ -11,8 +11,8 @@ This documentation is split into multiple files for easier navigation:
 | [README-MAIN.md](./README-MAIN.md) | **You are here** - Overview and Architecture |
 | [README-KAFKA.md](./README-KAFKA.md) | Apache Kafka - Message Streaming |
 | [README-FLINK.md](./flink/README-FLINK.md) | Apache Flink - Stream Processing |
-| [README-ICEBERG.md](./iceberg/README-ICEBERG.md) | Apache Iceberg & MinIO - Data Lake |
-| [README-POLARIS.md](./polaris/README-POLARIS.md) | Apache Polaris - Iceberg Catalog Service |
+| [README-ICEBERG.md](./iceberg/README-ICEBERG.md) | Apache Iceberg, Polaris & MinIO - Data Lake |
+| [README-POLARIS.md](./polaris/README-POLARIS.md) | **Deep Dive** - Polaris Setup & Architecture |
 | [README-CLICKHOUSE.md](./clickhouse/README-CLICKHOUSE.md) | ClickHouse - Analytics Database |
 | [README-DOCKER.md](./docker/README-DOCKER.md) | Docker Infrastructure |
 
@@ -283,6 +283,8 @@ quickstart/
 │   │   └── README-FLINK.md       # Flink job explanation
 │   ├── iceberg/
 │   │   └── README-ICEBERG.md     # Iceberg/Polaris/MinIO
+│   ├── polaris/
+│   │   └── README-POLARIS.md     # Polaris setup deep-dive
 │   ├── clickhouse/
 │   │   └── README-CLICKHOUSE.md  # ClickHouse analytics
 │   └── docker/

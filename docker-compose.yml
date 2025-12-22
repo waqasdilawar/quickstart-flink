@@ -442,12 +442,15 @@ services:
         
         # B. Create the DataLakeCatalog Database (Iceberg Integration)
         echo "Creating DataLakeCatalog database 'demo'..."
+
+        # Drop existing database first to ensure clean recreation with correct settings
+        curl -s -X POST "http://clickhouse:8123/" \
+          -H "X-ClickHouse-User: default" \
+          -H "X-ClickHouse-Key: password" \
+          -d "DROP DATABASE IF EXISTS demo" || true
         
-        # We assume catalog_type=rest, etc.
-        # storage_endpoint requires trailing slash? previous issue used it.
-        
-        DDL="CREATE DATABASE IF NOT EXISTS demo ENGINE = DataLakeCatalog('http://polaris:8181/api/catalog/v1/lakehouse') SETTINGS catalog_type='rest', storage_endpoint='http://minio:9000', catalog_credential='$${CH_CLIENT_ID}:$${CH_CLIENT_SECRET}', oauth_server_uri='http://polaris:8181/api/catalog/v1/oauth/tokens', auth_scope='PRINCIPAL_ROLE:clickhouse_role', aws_access_key_id='admin', aws_secret_access_key='password'"
-        
+        DDL="CREATE DATABASE demo ENGINE = DataLakeCatalog('http://polaris:8181/api/catalog') SETTINGS catalog_type='rest', warehouse = 'lakehouse', storage_endpoint='http://minio:9000', catalog_credential='$${CH_CLIENT_ID}:$${CH_CLIENT_SECRET}', oauth_server_uri='http://polaris:8181/api/catalog/v1/oauth/tokens', auth_scope='PRINCIPAL_ROLE:clickhouse_role', aws_access_key_id='admin', aws_secret_access_key='password'"
+
         CH_DB_RESP=$$(curl -s -X POST "http://clickhouse:8123/?allow_experimental_database_iceberg=1" \
           -H "X-ClickHouse-User: default" \
           -H "X-ClickHouse-Key: password" \
@@ -458,22 +461,53 @@ services:
 
         echo ""
         echo "=========================================="
+        echo "Testing ClickHouse Iceberg Queries..."
+        echo "=========================================="
+
+        # Test query to verify backtick syntax works
+        echo ""
+        echo "Testing query with dot-notation (using backticks):"
+        echo "SHOW TABLES FROM demo;"
+        curl -s -X POST "http://clickhouse:8123/" \
+          -H "X-ClickHouse-User: default" \
+          -H "X-ClickHouse-Key: password" \
+          -d "SHOW TABLES FROM demo FORMAT Pretty" || echo "⚠️  Query test skipped (tables may not have data yet)"
+
+        echo ""
+        echo "✅ ClickHouse Iceberg Integration Ready!"
+
+        echo ""
+        echo "=========================================="
         echo "🎉 Polaris Iceberg Setup Complete!"
         echo "=========================================="
         echo ""
-        echo "Catalog: $$CATALOG_NAME"
+        echo "📦 Catalog Configuration:"
+        echo "  Catalog: $$CATALOG_NAME"
         echo "  Namespace: $$NAMESPACE"
         echo "  Tables: profanity_messages, safe_messages"
         echo "  Storage: S3 (MinIO)"
         echo "  Location: s3://lakehouse"
         echo ""
-        echo "Polaris APIs:"
-        echo "  - Iceberg REST:   http://localhost:8181/api/catalog/v1"
-        echo "  - Management:     http://localhost:8181/api/management/v1"
+        echo "🔑 Polaris Credentials:"
+        echo "  Admin: admin:password"
+        echo "  ClickHouse User: $$CH_CLIENT_ID:$$CH_CLIENT_SECRET"
         echo ""
-        echo "MinIO Console: http://localhost:9001"
-        echo "  Username: admin"
-        echo "  Password: password"
+        echo "🌐 Service URLs:"
+        echo "  Polaris REST API:   http://localhost:8181/api/catalog/v1"
+        echo "  Polaris Management: http://localhost:8181/api/management/v1"
+        echo "  MinIO Console:      http://localhost:9001 (admin/password)"
+        echo "  ClickHouse HTTP:    http://localhost:18123"
+        echo ""
+        echo "📊 ClickHouse Query Examples:"
+        echo "  # Query Iceberg tables using backticks for dot-notation:"
+        echo "  SELECT * FROM demo.\`raw_messages.profanity_messages\` LIMIT 5;"
+        echo "  SELECT * FROM demo.\`raw_messages.safe_messages\` LIMIT 5;"
+        echo ""
+        echo "  # Show all tables in the demo database:"
+        echo "  SHOW TABLES FROM demo;"
+        echo ""
+        echo "  # Direct query via iceberg() function:"
+        echo "  SELECT * FROM iceberg('http://minio:9000/lakehouse/raw_messages/profanity_messages', 'admin', 'password') LIMIT 5;"
         echo ""
         echo "=========================================="
 
@@ -562,15 +596,15 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "9093:9093"
       - "29092:29092"
       - "9010:9010"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1

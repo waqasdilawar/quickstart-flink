@@ -308,7 +308,7 @@ services:
 
         # 1. Grant permissions to catalog_admin
         echo "Granting permissions to catalog_admin on $$CATALOG_NAME..."
-        
+
         # CATALOG_MANAGE_CONTENT
         curl -s -X PUT http://polaris:8181/api/management/v1/catalogs/$$CATALOG_NAME/catalog-roles/catalog_admin/grants \
           -H "Authorization: Bearer $$TOKEN" \
@@ -326,7 +326,7 @@ services:
           -H "Authorization: Bearer $$TOKEN" \
           -H "Content-Type: application/json" \
           -d '{"type": "catalog", "privilege": "TABLE_WRITE_DATA"}'
-        
+
         echo "✅ Granted permissions to catalog_admin"
 
         # 2. Create data_engineer role
@@ -355,127 +355,7 @@ services:
         echo "✅ RBAC Configuration Complete"
 
         echo ""
-        echo "=========================================="
-        echo "Configuring ClickHouse Integration..."
-        echo "=========================================="
-
-        # 1. Create Principal 'clickhouse_user'
-        echo "Creating Principal 'clickhouse_user'..."
-        
-        # DELETE first to rotate credentials if it exists
-        curl -s -X DELETE http://polaris:8181/api/management/v1/principals/clickhouse_user \
-          -H "Authorization: Bearer $$TOKEN" || true
-          
-        CH_USER_PAYLOAD='{"name": "clickhouse_user", "type": "SERVICE"}'
-        
-        CH_RESP=$$(curl -s -X POST http://polaris:8181/api/management/v1/principals \
-          -H "Authorization: Bearer $$TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "$$CH_USER_PAYLOAD")
-        
-        # Extract credentials using jq
-        CH_CLIENT_ID=$$(echo "$$CH_RESP" | jq -r '.credentials.clientId')
-        CH_CLIENT_SECRET=$$(echo "$$CH_RESP" | jq -r '.credentials.clientSecret')
-        
-        if [ "$$CH_CLIENT_ID" = "null" ] || [ -z "$$CH_CLIENT_ID" ]; then
-           echo "❌ Failed to create/retrieve ClickHouse user credentials"
-           echo "Response: $$CH_RESP"
-           exit 1
-        fi
-        
-        echo "✅ Principal 'clickhouse_user' created with Client ID: $$CH_CLIENT_ID"
-
-        echo ""
-        echo "=========================================="
-        echo "📋 POLARIS CREDENTIALS - SAVE THESE!"
-        echo "=========================================="
-        echo "Principal: clickhouse_user"
-        echo "Client ID: $$CH_CLIENT_ID"
-        echo "Client Secret: $$CH_CLIENT_SECRET"
-        echo ""
-        echo "Combined Format (for catalog_credential):"
-        echo "$$CH_CLIENT_ID:$$CH_CLIENT_SECRET"
-        echo "=========================================="
-        echo ""
-
-        # 2. Create Principal Role 'clickhouse_role'
-        echo "Creating Principal Role 'clickhouse_role'..."
-        curl -s -o /dev/null -X POST http://polaris:8181/api/management/v1/principal-roles \
-          -H "Authorization: Bearer $$TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{"name": "clickhouse_role"}' || true
-        echo "✅ Principal Role 'clickhouse_role' ensuring existence"
-
-        # 3. Assign Role to Principal
-        echo "Assigning 'clickhouse_role' to 'clickhouse_user'..."
-        curl -s -X PUT http://polaris:8181/api/management/v1/principals/clickhouse_user/principal-roles \
-          -H "Authorization: Bearer $$TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{"name": "clickhouse_role"}'
-
-        # 4. Assign 'catalog_admin' role to 'clickhouse_role'
-        echo "Assigning 'catalog_admin' to 'clickhouse_role'..."
-        curl -s -X PUT http://polaris:8181/api/management/v1/principal-roles/clickhouse_role/catalog-roles/$$CATALOG_NAME \
-          -H "Authorization: Bearer $$TOKEN" \
-          -H "Content-Type: application/json" \
-          -d '{"name": "catalog_admin"}'
-
-        echo "✅ ClickHouse Permissions Complete"
-        
-        echo ""
-        echo "Connecting to ClickHouse..."
-        echo "Waiting for ClickHouse to be ready..."
-        until curl -s "http://clickhouse:8123/ping" > /dev/null; do
-          echo "Waiting for ClickHouse..."
-          sleep 1
-        done
-        
-        echo "Initializing ClickHouse Tables..."
-        
-        # A. Create the Flink Sink Table (message_events)
-        curl -s -X POST "http://clickhouse:8123/" \
-          -H "X-ClickHouse-User: default" \
-          -H "X-ClickHouse-Key: password" \
-          --data-binary "CREATE TABLE IF NOT EXISTS default.message_events ( account_id String, message_id String, message_body String, correlation_id String, message_status String, event_time DateTime64(3), profanity_type String, inserted_at DateTime64(3) MATERIALIZED now() ) ENGINE = ReplacingMergeTree(inserted_at) PARTITION BY toYYYYMM(event_time) ORDER BY (account_id, message_id);"
-        
-        echo "✅ Table 'message_events' created"
-        
-        # B. Create the DataLakeCatalog Database (Iceberg Integration)
-        echo "Creating DataLakeCatalog database 'demo'..."
-
-        # Drop existing database first to ensure clean recreation with correct settings
-        curl -s -X POST "http://clickhouse:8123/" \
-          -H "X-ClickHouse-User: default" \
-          -H "X-ClickHouse-Key: password" \
-          -d "DROP DATABASE IF EXISTS demo" || true
-        
-        DDL="CREATE DATABASE demo ENGINE = DataLakeCatalog('http://polaris:8181/api/catalog') SETTINGS catalog_type='rest', warehouse = 'lakehouse', storage_endpoint='http://minio:9000', catalog_credential='$${CH_CLIENT_ID}:$${CH_CLIENT_SECRET}', oauth_server_uri='http://polaris:8181/api/catalog/v1/oauth/tokens', auth_scope='PRINCIPAL_ROLE:clickhouse_role', aws_access_key_id='admin', aws_secret_access_key='password'"
-
-        CH_DB_RESP=$$(curl -s -X POST "http://clickhouse:8123/?allow_experimental_database_iceberg=1" \
-          -H "X-ClickHouse-User: default" \
-          -H "X-ClickHouse-Key: password" \
-          -d "$$DDL")
-        
-        echo "ClickHouse Response: $$CH_DB_RESP"
-        echo "✅ ClickHouse Database 'demo' configured"
-
-        echo ""
-        echo "=========================================="
-        echo "Testing ClickHouse Iceberg Queries..."
-        echo "=========================================="
-
-        # Test query to verify backtick syntax works
-        echo ""
-        echo "Testing query with dot-notation (using backticks):"
-        echo "SHOW TABLES FROM demo;"
-        curl -s -X POST "http://clickhouse:8123/" \
-          -H "X-ClickHouse-User: default" \
-          -H "X-ClickHouse-Key: password" \
-          -d "SHOW TABLES FROM demo FORMAT Pretty" || echo "⚠️  Query test skipped (tables may not have data yet)"
-
-        echo ""
-        echo "✅ ClickHouse Iceberg Integration Ready!"
-
+        echo "✅ RBAC Configuration Complete"
         echo ""
         echo "=========================================="
         echo "🎉 Polaris Iceberg Setup Complete!"
@@ -488,35 +368,17 @@ services:
         echo "  Storage: S3 (MinIO)"
         echo "  Location: s3://lakehouse"
         echo ""
-        echo "🔑 Polaris Credentials:"
-        echo "  Admin: admin:password"
-        echo "  ClickHouse User: $$CH_CLIENT_ID:$$CH_CLIENT_SECRET"
-        echo ""
         echo "🌐 Service URLs:"
         echo "  Polaris REST API:   http://localhost:8181/api/catalog/v1"
         echo "  Polaris Management: http://localhost:8181/api/management/v1"
         echo "  MinIO Console:      http://localhost:9001 (admin/password)"
-        echo "  ClickHouse HTTP:    http://localhost:18123"
-        echo ""
-        echo "📊 ClickHouse Query Examples:"
-        echo "  # Query Iceberg tables using backticks for dot-notation:"
-        echo "  SELECT * FROM demo.\`raw_messages.profanity_messages\` LIMIT 5;"
-        echo "  SELECT * FROM demo.\`raw_messages.safe_messages\` LIMIT 5;"
-        echo ""
-        echo "  # Show all tables in the demo database:"
-        echo "  SHOW TABLES FROM demo;"
-        echo ""
-        echo "  # Direct query via iceberg() function:"
-        echo "  SELECT * FROM iceberg('http://minio:9000/lakehouse/raw_messages/profanity_messages', 'admin', 'password') LIMIT 5;"
-        echo ""
-        echo "=========================================="
 
   clickhouse:
-    image: clickhouse:25.3.10.19
+    image: clickhouse:25.11.3.54
     container_name: clickhouse
     ports:
-      - "18123:8123"   # HTTP
-      - "19000:9000"   # native
+      - "18123:8123" # HTTP
+      - "19000:9000" # native
     environment:
       CLICKHOUSE_DB: default
       CLICKHOUSE_PASSWORD: password
@@ -524,23 +386,106 @@ services:
     networks:
       - flink-network
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8123/ping" ]
       interval: 5s
       timeout: 5s
       retries: 5
 
   clickhouse-setup:
     image: alpine/curl
+    container_name: clickhouse-setup
     depends_on:
       clickhouse:
         condition: service_healthy
+      polaris:
+        condition: service_healthy
+      polaris-setup:
+        condition: service_completed_successfully
     networks:
       - flink-network
+    environment:
+      - CLIENT_ID=admin
+      - CLIENT_SECRET=password
+      - CATALOG_NAME=lakehouse
     entrypoint: /bin/sh
     command:
       - -c
       - |
         set -e
+        apk add --no-cache jq
+
+        echo "Waiting for Polaris to be ready..."
+        # Simply wait a bit or check health if possible, but depends_on should help.
+        # Ideally check if we can get a token with admin creds.
+        until curl -s -f -X POST http://polaris:8181/api/catalog/v1/oauth/tokens \
+          -d "grant_type=client_credentials&client_id=$${CLIENT_ID}&client_secret=$${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL" > /dev/null; do
+            echo "Waiting for Polaris..."
+            sleep 2
+        done
+
+        # Get Admin Token First
+        echo "Obtaining Admin OAuth access token..."
+        TOKEN_RESPONSE=$$(curl -s -X POST http://polaris:8181/api/catalog/v1/oauth/tokens \
+          -H 'Content-Type: application/x-www-form-urlencoded' \
+          -d "grant_type=client_credentials&client_id=$${CLIENT_ID}&client_secret=$${CLIENT_SECRET}&scope=PRINCIPAL_ROLE:ALL")
+        TOKEN=$$(echo $$TOKEN_RESPONSE | jq -r '.access_token')
+
+        echo "=========================================="
+        echo "Configuring ClickHouse Integration..."
+        echo "=========================================="
+
+        # 1. Create Principal 'clickhouse_user'
+        echo "Creating Principal 'clickhouse_user'..."
+
+        # DELETE first to rotate credentials if it exists (idempotency)
+        curl -s -X DELETE http://polaris:8181/api/management/v1/principals/clickhouse_user \
+          -H "Authorization: Bearer $$TOKEN" || true
+          
+        CH_USER_PAYLOAD='{"name": "clickhouse_user", "type": "SERVICE"}'
+        CH_RESP=$$(curl -s -X POST http://polaris:8181/api/management/v1/principals \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$$CH_USER_PAYLOAD")
+
+        CH_CLIENT_ID=$$(echo "$$CH_RESP" | jq -r '.credentials.clientId')
+        CH_CLIENT_SECRET=$$(echo "$$CH_RESP" | jq -r '.credentials.clientSecret')
+
+        if [ "$$CH_CLIENT_ID" = "null" ] || [ -z "$$CH_CLIENT_ID" ]; then
+           echo "❌ Failed to create/retrieve ClickHouse user credentials"
+           echo "Response: $$CH_RESP"
+           exit 1
+        fi
+        echo "✅ Principal 'clickhouse_user' created: $$CH_CLIENT_ID"
+
+        # 2. Create Principal Role 'clickhouse_role'
+        curl -s -o /dev/null -X POST http://polaris:8181/api/management/v1/principal-roles \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"name": "clickhouse_role"}' || true
+
+        # 3. Assign Role to Principal
+        curl -s -X PUT http://polaris:8181/api/management/v1/principals/clickhouse_user/principal-roles \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"name": "clickhouse_role"}'
+
+        # 4. Assign 'catalog_admin' role to 'clickhouse_role'
+        # Wait for catalog to exist (race condition with polaris-setup)
+        echo "Waiting for catalog '$$CATALOG_NAME' to be ready..."
+        until curl -s -f -X GET http://polaris:8181/api/management/v1/catalogs/$$CATALOG_NAME \
+          -H "Authorization: Bearer $$TOKEN" > /dev/null; do
+            echo "Waiting for catalog '$$CATALOG_NAME'..."
+            sleep 2
+        done
+        echo "✅ Catalog '$$CATALOG_NAME' found"
+
+        curl -s -X PUT http://polaris:8181/api/management/v1/principal-roles/clickhouse_role/catalog-roles/$$CATALOG_NAME \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"name": "catalog_admin"}'
+
+        echo "✅ ClickHouse Permissions Complete"
+
         echo "Waiting for ClickHouse to be ready..."
         until curl -s "http://clickhouse:8123/ping" > /dev/null; do
           echo "Waiting for ClickHouse..."
@@ -554,6 +499,36 @@ services:
           --data-binary "CREATE TABLE IF NOT EXISTS default.message_events ( account_id String, message_id String, message_body String, correlation_id String, message_status String, event_time DateTime64(3), profanity_type String, inserted_at DateTime64(3) MATERIALIZED now() ) ENGINE = ReplacingMergeTree(inserted_at) PARTITION BY toYYYYMM(event_time) ORDER BY (account_id, message_id);"
 
         echo "✅ Table message_events created"
+
+        # B. Create the DataLakeCatalog Database (Iceberg Integration)
+        echo "Creating DataLakeCatalog database 'demo'..."
+
+        # Drop to recreate
+        curl -s -X POST "http://clickhouse:8123/" \
+          -H "X-ClickHouse-User: default" \
+          -H "X-ClickHouse-Key: password" \
+          -d "DROP DATABASE IF EXISTS demo" || true
+
+        DDL="CREATE DATABASE demo ENGINE = DataLakeCatalog('http://polaris:8181/api/catalog') SETTINGS catalog_type='rest', storage_endpoint='http://minio:9000', warehouse = 'lakehouse', catalog_credential='$${CH_CLIENT_ID}:$${CH_CLIENT_SECRET}', oauth_server_uri='http://polaris:8181/api/catalog/v1/oauth/tokens', auth_scope='PRINCIPAL_ROLE:clickhouse_role', aws_access_key_id='admin', aws_secret_access_key='password'"
+
+        CH_DB_RESP=$$(curl -s -X POST "http://clickhouse:8123/?allow_experimental_database_iceberg=1" \
+          -H "X-ClickHouse-User: default" \
+          -H "X-ClickHouse-Key: password" \
+          -d "$$DDL")
+
+        echo "ClickHouse Response: $$CH_DB_RESP"
+
+        if echo "$$CH_DB_RESP" | grep -q "Code:"; then
+           echo "❌ Failed to configure ClickHouse database 'demo'"
+           exit 1
+        fi
+
+        echo "✅ ClickHouse Database 'demo' configured"
+
+        echo ""
+        echo "📊 ClickHouse Query Examples:"
+        echo "  SELECT * FROM demo.\`raw_messages.profanity_messages\` LIMIT 5;"
+        echo "  SELECT * FROM iceberg('http://minio:9000/lakehouse/raw_messages/profanity_messages', 'admin', 'password') LIMIT 5;"
 
   iceberg-sink-connect:
     image: quay.io/debezium/connect

@@ -2,11 +2,12 @@
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [Why is the Setup So Complex?](#why-is-the-setup-so-complex)
-3. [The 4-Step Initialization Chain](#the-4-step-initialization-chain)
-4. [Deep Dive: polaris-setup](#deep-dive-polaris-setup)
-5. [RBAC & Security Model](#rbac--security-model)
-6. [Architecture Diagram](#architecture-diagram)
+2. [Project Architecture](#project-architecture)
+3. [Why Polaris is Important](#why-polaris-is-important)
+4. [The 4-Step Initialization Chain](#the-4-step-initialization-chain)
+5. [Deep Dive: Internal Hierarchy & The "Why"](#deep-dive-internal-hierarchy--the-why)
+6. [RBAC & Security Model](#rbac--security-model)
+7. [Architecture Diagram](#architecture-diagram)
 
 ---
 
@@ -18,15 +19,26 @@ This article demystifies the **Apache Polaris** setup in this project. We don't 
 
 ---
 
-## Why is the Setup So Complex?
+## Project Architecture
 
-In a simple world, a service would just start up and save data to a local file. But Polaris is a **stateless, cloud-native REST Catalog**. It follows the **12-Factor App** methodology:
+In your specific setup, **Apache Polaris** acts as the bridge between your stream processing (Flink) and your analytical queries (ClickHouse).
 
-1.  **Statelessness**: The API server (`polaris`) has no persistent state. It relies entirely on an external database.
-2.  **Decoupling**: Storage (MinIO) and Metadata (Postgres) are separate.
-3.  **Security First**: It starts "locked down" by default. You must explicitly create credentials and grant permissions.
+![Project Polaris Architecture](./images/polaris_architecture.png)
 
-Because of this, we cannot just "boot and run." We must **provision** the infrastructure.
+1.  **Breaking the Silo**: Flink writes data to MinIO. Without Polaris, ClickHouse would need to manually scan S3 buckets or rely on brittle file paths to find new parquet files.
+2.  **Iceberg Standardization**: Polaris maintains the Iceberg metadata. This ensures that when Flink commits a transaction, ClickHouse immediately sees the consistent snapshot of the table `raw_messages.filtered_messages`.
+3.  **Future Proofing**: If you later decide to add Spark for batch processing or Trino for ad-hoc queries, they can simply plug into Polaris and immediately read the same tables without any data migration.
+
+---
+
+## Why Polaris is Important
+
+Apache Polaris serves as the **centralized catalog** for your Data Lakehouse. In a modern architecture separating compute (Flink, Spark, Trino) from storage (S3/MinIO), you need a "brain" to track where data lives and who can access it.
+
+1.  **Unified Governance (RBAC)**: instead of managing permissions in S3 buckets or individual engines, you define roles (e.g., `data_engineer`, `analyst`) in Polaris. It dispenses short-lived tokens to clients, ensuring secure access.
+2.  **Interoperability**: It implements the **Iceberg REST Catalog** standard. This means any engine that speaks Iceberg (Flink, Spark, Trino, ClickHouse) can read/write the same data without custom integration.
+3.  **Process Isolation**: Compute engines are stateless. You can upgrade Flink or swap ClickHouse without affecting the underlying data or its metadata.
+4.  **Cloud Agnostic**: Polaris abstracts the physical storage (S3, Azure Blob, GCS). You can move data between clouds without changing the application logic.
 
 ---
 
@@ -60,39 +72,35 @@ We use Docker Compose dependencies (`depends_on`) to strictly order these 4 cont
 
 ---
 
-## Deep Dive: polaris-setup
+## Deep Dive: Internal Hierarchy & The "Why"
 
-The `polaris-setup` service is a custom shell script that acts as the "Cluster Administrator." Let's break down its key operations:
+This section visualizes the **exact content** your `polaris-setup` container is creating inside Polaris and explains **why** we need each level.
 
-### A. OAuth2 Authentication
-Polaris uses token-based auth. The script first exchanges the root credentials for an access token:
+![Polaris Internal Hierarchy Explained](./images/polaris_hierarchy_explained.png)
 
-```bash
-curl -X POST /api/catalog/v1/oauth/tokens \
-  -d "grant_type=client_credentials&client_id=${root}&client_secret=${secret}"
-```
+### 1. The Catalog (`lakehouse`)
+*   **Why**: Defines **WHERE** data lives.
+*   It links the logical world (tables) to the physical world (S3/MinIO).
+*   It serves as the root for Role-Based Access Control (RBAC).
 
-### B. Catalog Creation
-It defines *where* the data lives. Note the S3 configuration pointing to MinIO:
+### 2. The Namespace (`raw_messages`)
+*   **Why**: Logical grouping for governance.
+*   Like a folder or a database schema (e.g., `public` in Postgres).
+*   Allows you to separate `raw` data from `curated` or `gold` data.
 
-```json
-{
-  "catalog": {
-    "name": "lakehouse",
-    "type": "INTERNAL",
-    "properties": {
-      "default-base-location": "s3://lakehouse"
-    },
-    "storageConfigInfo": {
-      "storageType": "S3",
-      "endpoint": "http://minio:9000"
-    }
-  }
-}
-```
+### 3. The Table (`profanity_messages`)
+*   **Why**: Defines **WHAT** the data looks like (Schema).
+*   Ensures strict typing (e.g., `account_id` is a String, `timestamp` is a Timestamp) so Flink writes valid data and ClickHouse reads valid data.
 
-### C. Table Registration
-It creates the `profanity_messages` and `safe_messages` tables with their specific schema and partition specs. This ensures Flink has a strict contract to write against.
+### The Script's Configuration
+Your setup script wires this hierarchy:
+
+*   **Catalog**: `lakehouse`
+    *   *Type*: `INTERNAL`
+    *   *Base Location*: `s3://lakehouse`
+    *   **Namespace**: `raw_messages`
+        *   **Table 1**: `profanity_messages` (Schema: `account_id`, `message_body`, `timestamp`...)
+        *   **Table 2**: `safe_messages` (Same schema)
 
 ---
 
